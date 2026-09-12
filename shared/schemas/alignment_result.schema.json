@@ -45,7 +45,7 @@
       "type": "number",
       "minimum": 0,
       "maximum": 1,
-      "description": "Alignment quality estimate derived from DTW path cost, 0 (poor) to 1 (excellent)."
+      "description": "Alignment quality estimate, 0 (poor) to 1 (excellent). For method=dtw_chroma this is derived from DTW path cost (content match quality). For method=timestamp_offset it instead reflects trust in the shared room clock, since there's no melodic content to verify against -- it cannot detect relative tempo drift the way dtw_chroma can."
     },
     "hop_length_ms": {
       "type": "number",
@@ -54,8 +54,8 @@
     },
     "method": {
       "type": "string",
-      "enum": ["dtw_chroma"],
-      "description": "Alignment algorithm used. Currently DTW over chroma features."
+      "enum": ["dtw_chroma", "timestamp_offset"],
+      "description": "Alignment algorithm used. dtw_chroma: DTW over chroma features, tracks tempo drift, requires the two signals to share melodic/harmonic content. timestamp_offset: a constant offset derived from each Signal's captured start_time on the shared room clock (Task 1) -- the fallback when dtw_chroma's confidence is too low to trust, e.g. the two performers are singing/playing different material rather than the same piece."
     },
     "streaming": {
       "type": "boolean",

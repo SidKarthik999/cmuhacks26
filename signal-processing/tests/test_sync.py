@@ -9,8 +9,9 @@ import numpy as np
 import pytest
 import librosa
 
-from sync import AlignmentResult, align_audio, render_aligned_playback, StreamingAligner
+from sync import AlignmentResult, align_audio, align_signals, render_aligned_playback, StreamingAligner
 from sync.features import to_wav_bytes, load_audio_mono
+from storage import SignalStore
 
 SAMPLE_RATE = 22050
 
@@ -22,20 +23,28 @@ _ALIGNMENT_SCHEMA = json.loads(
 # frame-to-frame -- a single sustained tone would make every frame's chroma
 # identical and DTW's alignment ambiguous.
 _MELODY_HZ = [261.63, 293.66, 329.63, 349.23, 392.00]  # C D E F G
+# A second, harmonically unrelated melody: pitch classes chosen to sit
+# roughly a semitone away from _MELODY_HZ's (C# D# F# G# A#), so chroma
+# vectors have little bin overlap -- stands in for "two people singing
+# different material," not just a different tune built on the same notes.
+_UNRELATED_MELODY_HZ = [277.18, 311.13, 369.99, 415.30, 466.16]
 _NOTE_MS = 300
 
 
-def _melody_wave(sample_rate: int = SAMPLE_RATE, note_ms: int = _NOTE_MS) -> np.ndarray:
+def _melody_wave(
+    sample_rate: int = SAMPLE_RATE, note_ms: int = _NOTE_MS, hz_list=None
+) -> np.ndarray:
+    hz_list = hz_list or _MELODY_HZ
     segments = []
-    for hz in _MELODY_HZ:
+    for hz in hz_list:
         n = int(sample_rate * note_ms / 1000)
         t = np.arange(n) / sample_rate
         segments.append(0.5 * np.sin(2 * np.pi * hz * t).astype(np.float32))
     return np.concatenate(segments)
 
 
-def _melody_wav_bytes(sample_rate: int = SAMPLE_RATE, note_ms: int = _NOTE_MS) -> bytes:
-    return to_wav_bytes(_melody_wave(sample_rate, note_ms), sample_rate)
+def _melody_wav_bytes(sample_rate: int = SAMPLE_RATE, note_ms: int = _NOTE_MS, hz_list=None) -> bytes:
+    return to_wav_bytes(_melody_wave(sample_rate, note_ms, hz_list), sample_rate)
 
 
 def _silence(ms: float, sample_rate: int = SAMPLE_RATE) -> np.ndarray:
@@ -170,3 +179,100 @@ def test_alignment_result_matches_shared_schema():
         streaming=False,
     )
     jsonschema.validate(instance=result.to_dict(), schema=_ALIGNMENT_SCHEMA)
+
+
+def test_unrelated_melodies_get_low_dtw_confidence():
+    """Sanity check for the fallback trigger condition: two signals built
+    from disjoint pitch classes (standing in for two people singing
+    different material) should score meaningfully lower than two identical
+    signals, ideally below the fallback threshold."""
+    melody_a = _melody_wav_bytes(hz_list=_MELODY_HZ)
+    melody_b = _melody_wav_bytes(hz_list=_UNRELATED_MELODY_HZ)
+
+    _, same_content_confidence, _ = align_audio(melody_a, melody_a)
+    _, different_content_confidence, _ = align_audio(melody_a, melody_b)
+
+    assert different_content_confidence < same_content_confidence
+
+
+def test_align_signals_falls_back_to_timestamp_offset_for_unrelated_content(tmp_path):
+    """When DTW confidence is too low to trust (different material, not a
+    tempo-drifted version of the same melody), align_signals must fall back
+    to a constant offset derived from the Signals' captured start_time
+    (Task 1's shared room clock), not return a meaningless warp path."""
+    melody_a = _melody_wave(hz_list=_MELODY_HZ)
+    melody_b = _melody_wave(hz_list=_UNRELATED_MELODY_HZ)
+
+    with SignalStore(root=tmp_path / "signals") as store:
+        signal_ref = store.save(
+            participant_id="p1", room_id="room1",
+            start_time=1000.0, end_time=1000.0 + len(melody_a) / SAMPLE_RATE * 1000,
+            sample_rate=SAMPLE_RATE, audio_bytes=to_wav_bytes(melody_a, SAMPLE_RATE),
+        )
+        true_offset_ms = 750.0
+        signal_other = store.save(
+            participant_id="p2", room_id="room1",
+            start_time=signal_ref.start_time + true_offset_ms,
+            end_time=signal_ref.start_time + true_offset_ms + len(melody_b) / SAMPLE_RATE * 1000,
+            sample_rate=SAMPLE_RATE, audio_bytes=to_wav_bytes(melody_b, SAMPLE_RATE),
+        )
+
+        # Force the fallback deterministically regardless of how low this
+        # particular synthetic pair's DTW confidence happens to be.
+        result = align_signals(signal_ref, signal_other, store, confidence_threshold=1.1)
+
+    assert result.method == "timestamp_offset"
+    recovered_offset_ms = (result.warp_path[0][1] - result.warp_path[0][0]) * result.hop_length_ms
+    assert abs(recovered_offset_ms - true_offset_ms) < result.hop_length_ms
+
+
+def test_align_signals_uses_dtw_for_shared_content(tmp_path):
+    """The common case (Teach/Practice/Performance as scoped: same melody)
+    should still use content-based DTW, not always fall back."""
+    melody = _melody_wave()
+
+    with SignalStore(root=tmp_path / "signals") as store:
+        signal_ref = store.save(
+            participant_id="p1", room_id="room1",
+            start_time=0.0, end_time=len(melody) / SAMPLE_RATE * 1000,
+            sample_rate=SAMPLE_RATE, audio_bytes=to_wav_bytes(melody, SAMPLE_RATE),
+        )
+        signal_other = store.save(
+            participant_id="p2", room_id="room1",
+            start_time=0.0, end_time=len(melody) / SAMPLE_RATE * 1000,
+            sample_rate=SAMPLE_RATE, audio_bytes=to_wav_bytes(melody, SAMPLE_RATE),
+        )
+
+        result = align_signals(signal_ref, signal_other, store)
+
+    assert result.method == "dtw_chroma"
+    assert result.confidence > 0.9
+
+
+def test_streaming_aligner_falls_back_when_content_differs_but_clock_known():
+    melody_a = _melody_wave(hz_list=_MELODY_HZ)
+    true_offset_ms = 400.0
+    melody_b = np.concatenate([_silence(true_offset_ms), _melody_wave(hz_list=_UNRELATED_MELODY_HZ)])
+
+    aligner = StreamingAligner(
+        signal_ids=("sig_a", "sig_b"),
+        window_frames=50,
+        clock_offset_ms=true_offset_ms,
+        confidence_threshold=1.1,  # force fallback regardless of actual DTW confidence
+    )
+    chunk_samples = SAMPLE_RATE // 2
+    result = None
+    for start in range(0, max(len(melody_a), len(melody_b)), chunk_samples):
+        end = start + chunk_samples
+        chunk_a = melody_a[start:end] if start < len(melody_a) else np.zeros(0, dtype=np.float32)
+        chunk_b = melody_b[start:end] if start < len(melody_b) else np.zeros(0, dtype=np.float32)
+        if len(chunk_a) == 0 or len(chunk_b) == 0:
+            continue
+        r = aligner.push(to_wav_bytes(chunk_a, SAMPLE_RATE), to_wav_bytes(chunk_b, SAMPLE_RATE))
+        if r is not None:
+            result = r
+
+    assert result is not None
+    assert result.method == "timestamp_offset"
+    recovered_offset_ms = (result.warp_path[0][1] - result.warp_path[0][0]) * result.hop_length_ms
+    assert abs(recovered_offset_ms - true_offset_ms) < result.hop_length_ms

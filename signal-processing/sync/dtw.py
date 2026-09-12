@@ -19,6 +19,20 @@ from .features import chroma_features, load_audio_mono, resample_to_match
 
 DEFAULT_HOP_LENGTH = 2048
 
+# Below this, chroma-based DTW is treated as unreliable -- typically because
+# the two signals don't share melodic/harmonic content (e.g. two performers
+# singing different material, not the same melody), so the "optimal" warp
+# path is just noise, not a real alignment.
+DTW_CONFIDENCE_THRESHOLD = 0.5
+
+# Confidence assigned to the timestamp-offset fallback. It reflects trust in
+# the shared room clock (Task 1 — both signals were captured in the same
+# live call session), not content match quality, since there's no melodic
+# content to verify against. Deliberately not 1.0: clock offsets still carry
+# some network/capture jitter, and this path can't detect relative tempo
+# drift the way content-based DTW can.
+TIMESTAMP_FALLBACK_CONFIDENCE = 0.5
+
 
 @dataclass
 class AlignmentResult:
@@ -95,23 +109,70 @@ def align_audio(
     return warp_path, confidence, hop_length_ms
 
 
-def align_signals(signal_ref, signal_other, store) -> AlignmentResult:
+def align_signals(
+    signal_ref,
+    signal_other,
+    store,
+    confidence_threshold: float = DTW_CONFIDENCE_THRESHOLD,
+) -> AlignmentResult:
     """Task 4's Signal-level entry point: fetch both Signals' audio from the
     store, align them, and return the full AlignmentResult contract.
 
     `signal_ref`/`signal_other` are Signal objects (signal-processing.storage.Signal);
     `store` is a SignalStore.
+
+    Content-based DTW assumes both signals share melodic/harmonic content
+    (e.g. Teach mode's student echoing the teacher, or an ensemble performing
+    the same piece). When two people sing genuinely different material,
+    there's nothing for chroma matching to lock onto and the warp path
+    becomes noise -- so if DTW confidence falls below `confidence_threshold`,
+    fall back to a constant offset derived from each Signal's captured
+    `start_time` on the shared room clock (Task 1) instead of trusting a
+    meaningless warp path.
     """
     audio_ref = store.get_audio(signal_ref.id)
     audio_other = store.get_audio(signal_other.id)
 
     warp_path, confidence, hop_length_ms = align_audio(audio_ref, audio_other)
 
+    if confidence >= confidence_threshold:
+        return AlignmentResult(
+            signal_ids=[signal_ref.id, signal_other.id],
+            reference_signal_id=signal_ref.id,
+            warp_path=[tuple(p) for p in warp_path],
+            confidence=confidence,
+            hop_length_ms=hop_length_ms,
+            method="dtw_chroma",
+            streaming=False,
+        )
+
+    return _timestamp_offset_alignment(signal_ref, signal_other, hop_length_ms)
+
+
+def _timestamp_offset_alignment(
+    signal_ref, signal_other, hop_length_ms: float
+) -> AlignmentResult:
+    """Fallback sync basis: a constant offset from wall-clock capture
+    timestamps, not audio content. Only two anchor points (start and end of
+    the reference signal) since a constant offset is all a shared clock can
+    give us -- it makes no claim about relative tempo, unlike DTW's warp
+    path.
+    """
+    offset_ms = signal_other.start_time - signal_ref.start_time
+    offset_frames = offset_ms / hop_length_ms
+    ref_duration_frames = max(
+        int(round((signal_ref.end_time - signal_ref.start_time) / hop_length_ms)), 1
+    )
+    warp_path = [
+        (0, int(round(offset_frames))),
+        (ref_duration_frames, int(round(ref_duration_frames + offset_frames))),
+    ]
     return AlignmentResult(
         signal_ids=[signal_ref.id, signal_other.id],
         reference_signal_id=signal_ref.id,
-        warp_path=[tuple(p) for p in warp_path],
-        confidence=confidence,
+        warp_path=warp_path,
+        confidence=TIMESTAMP_FALLBACK_CONFIDENCE,
         hop_length_ms=hop_length_ms,
+        method="timestamp_offset",
         streaming=False,
     )

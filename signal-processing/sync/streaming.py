@@ -13,7 +13,13 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-from .dtw import DEFAULT_HOP_LENGTH, AlignmentResult, _dtw_chroma
+from .dtw import (
+    DEFAULT_HOP_LENGTH,
+    DTW_CONFIDENCE_THRESHOLD,
+    TIMESTAMP_FALLBACK_CONFIDENCE,
+    AlignmentResult,
+    _dtw_chroma,
+)
 from .features import chroma_features, load_audio_mono, resample_to_match
 
 DEFAULT_WINDOW_FRAMES = 200  # ~9s of context at hop_length=2048, sr=44100
@@ -23,6 +29,12 @@ class StreamingAligner:
     """Feed rolling audio chunks for two participants; get back an updated
     AlignmentResult after each chunk, computed over a bounded trailing
     window rather than the full history.
+
+    `clock_offset_ms`, when provided, is `other`'s capture start time minus
+    `ref`'s (the shared room clock — Task 1). It's used as a fallback sync
+    basis when DTW confidence drops below `confidence_threshold`, e.g. the
+    two participants are singing/playing different material rather than the
+    same melody — see dtw.align_signals for the same logic in the batch path.
     """
 
     def __init__(
@@ -30,10 +42,14 @@ class StreamingAligner:
         signal_ids: Tuple[str, str],
         hop_length: int = DEFAULT_HOP_LENGTH,
         window_frames: int = DEFAULT_WINDOW_FRAMES,
+        clock_offset_ms: Optional[float] = None,
+        confidence_threshold: float = DTW_CONFIDENCE_THRESHOLD,
     ):
         self.signal_ids = list(signal_ids)
         self.hop_length = hop_length
         self.window_frames = window_frames
+        self.clock_offset_ms = clock_offset_ms
+        self.confidence_threshold = confidence_threshold
         self._sr: Optional[int] = None
         self._chroma_ref: Optional[np.ndarray] = None
         self._chroma_other: Optional[np.ndarray] = None
@@ -88,12 +104,36 @@ class StreamingAligner:
             (int(a) + self._frame_offset, int(b) + self._frame_offset) for a, b in warp_path
         ]
 
-        self.latest = AlignmentResult(
+        if confidence < self.confidence_threshold and self.clock_offset_ms is not None:
+            self.latest = self._clock_offset_result(hop_length_ms)
+        else:
+            self.latest = AlignmentResult(
+                signal_ids=self.signal_ids,
+                reference_signal_id=self.signal_ids[0],
+                warp_path=global_warp_path,
+                confidence=confidence,
+                hop_length_ms=hop_length_ms,
+                method="dtw_chroma",
+                streaming=True,
+            )
+        return self.latest
+
+    def _clock_offset_result(self, hop_length_ms: float) -> AlignmentResult:
+        """Constant-offset fallback spanning the frames seen so far, used
+        when content-based DTW confidence is too low to trust (see class
+        docstring)."""
+        offset_frames = int(round(self.clock_offset_ms / hop_length_ms))
+        first_frame = self._frame_offset
+        last_frame = self._frame_offset + self._chroma_ref.shape[1] - 1
+        return AlignmentResult(
             signal_ids=self.signal_ids,
             reference_signal_id=self.signal_ids[0],
-            warp_path=global_warp_path,
-            confidence=confidence,
+            warp_path=[
+                (first_frame, first_frame + offset_frames),
+                (last_frame, last_frame + offset_frames),
+            ],
+            confidence=TIMESTAMP_FALLBACK_CONFIDENCE,
             hop_length_ms=hop_length_ms,
+            method="timestamp_offset",
             streaming=True,
         )
-        return self.latest

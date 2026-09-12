@@ -60,9 +60,17 @@ processes should point at the same root if they need to share a store.
 
 ### Sync API (`signal-processing/sync/`)
 
-- `align_signals(signal_ref, signal_other, store) -> AlignmentResult` —
+- `align_signals(signal_ref, signal_other, store, confidence_threshold=0.5) -> AlignmentResult` —
   batch entry point: fetches both Signals' audio via a `SignalStore` and
   runs DTW over chroma features. Use this for Teach mode's grading flow.
+  **Fallback:** DTW assumes both signals share melodic/harmonic content
+  (the same melody, sung together or echoed back). If confidence comes back
+  below `confidence_threshold`, that means content-matching found nothing
+  reliable to lock onto (e.g. the two performers are singing/playing
+  different material) — in that case this returns a `method="timestamp_offset"`
+  result instead: a constant offset from each Signal's captured `start_time`
+  on the shared room clock (Task 1), not a fabricated warp path. Callers
+  that need to know which basis was used should check `result.method`.
 - `align_audio(audio_ref_bytes, audio_other_bytes) -> (warp_path, confidence, hop_length_ms)`
   — lower-level function operating on raw audio, no Signal/store dependency.
 - `StreamingAligner` (`signal-processing/sync/streaming.py`) — the
@@ -71,7 +79,9 @@ processes should point at the same root if they need to share a store.
   arrives; it recomputes DTW over a bounded trailing window (not the full
   history) so cost stays roughly constant per update, and returns an
   `AlignmentResult` with `streaming=True` once both streams have enough
-  audio for at least one chroma frame.
+  audio for at least one chroma frame. Pass `clock_offset_ms` (the two
+  participants' room-clock start-time difference) at construction to get
+  the same low-confidence fallback as `align_signals` above.
 - `render_aligned_playback(audio_ref, audio_other, warp_path, hop_length_ms) -> AlignedPlayback`
   (`signal-processing/sync/playback.py`) — the "aligned playback" output:
   time-warps the other signal onto the reference's timeline and returns
