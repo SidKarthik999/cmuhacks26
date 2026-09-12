@@ -1,0 +1,66 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cmuhacks26/shared/schemas/alignment_result.schema.json",
+  "title": "AlignmentResult",
+  "description": "Full time-warp alignment between two Signals (Task 4/6). Owned by Person C (signal-processing/sync/). Consumed by Person A (routing/mix delivery) and Person B (mode owners displaying/using synced audio). Breaking changes require a version bump and review from A and B before merging.",
+  "type": "object",
+  "version": 1,
+  "required": [
+    "id",
+    "signal_ids",
+    "reference_signal_id",
+    "warp_path",
+    "confidence",
+    "hop_length_ms",
+    "method",
+    "streaming"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique AlignmentResult identifier."
+    },
+    "signal_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 2,
+      "maxItems": 4,
+      "description": "The Signal IDs being aligned. Exactly 2 for Task 4 (pairwise); up to 4 for Task 6 (group)."
+    },
+    "reference_signal_id": {
+      "type": "string",
+      "description": "The Signal ID all others are warped relative to (Task 4: the second signal warped onto the first; Task 6: the group's chosen/reassigned anchor, e.g. Performance mode's lead)."
+    },
+    "warp_path": {
+      "type": "array",
+      "description": "For pairwise (Task 4): a list of [reference_frame_idx, other_frame_idx] pairs in ascending order, the DTW warp path over frame-level features (not a single constant offset — required for tempo-drift handling). For group (Task 6): an object keyed by signal_id with its own warp path against reference_signal_id.",
+      "items": {
+        "type": "array",
+        "items": { "type": "integer" },
+        "minItems": 2,
+        "maxItems": 2
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Alignment quality estimate derived from DTW path cost, 0 (poor) to 1 (excellent)."
+    },
+    "hop_length_ms": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "Time resolution of one frame step in warp_path, in milliseconds."
+    },
+    "method": {
+      "type": "string",
+      "enum": ["dtw_chroma"],
+      "description": "Alignment algorithm used. Currently DTW over chroma features."
+    },
+    "streaming": {
+      "type": "boolean",
+      "description": "True if produced by the incremental/windowed streaming aligner (partial, updated on a rolling buffer); false if produced by the batch aligner on complete closed Signals."
+    }
+  },
+  "additionalProperties": false
+}
