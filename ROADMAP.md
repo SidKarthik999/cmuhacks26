@@ -305,14 +305,14 @@ Three tracks, each owned by one person, ordered so each person's first task matc
 1. **Task 1 — Video conversation platform.** (first task) Get a working multi-party call with per-participant audio tracks exposed for downstream processing. Sized for ~25 concurrent participants (SFU-backed).
 2. **Task 9 — Multi-feed audio routing** *(new task, defined in Part 2)*. Extend the platform so different participants in the same room can receive different audio feeds — e.g. Performance mode's performers-hear-raw/listeners-hear-processed split, Practice mode's raw-call-plus-enhanced-feed.
 3. **Mode & role infrastructure** (Part 2, "Mode selection & roles"). Add the room-level `mode` field (`teach` / `practice` / `performance`) and role assignment at join time (`teacher`/`student`, peer/peer, `performer`/`lead`/`listener`).
-4. **Integration support:** wire Task 9's routing into Performance mode (step 4) and Practice mode (step 4) once Person B/C's streaming pipelines produce a mix to route.
+4. **Performance mode — integration owner** (see "Mode integration ownership" below).
 
 ## Person B — Audio Signal Intelligence track
 
 1. **Task 2 — Singing detection.** (first task) Per-participant `is_singing` classification off Person A's raw audio tracks.
 2. **Task 7 — Signal cleaning (noise removal).** Build both the batch variant (operates on a closed Signal) and the streaming variant (<1–2s latency, needed by Practice/Performance) — resolved to run automatically on every extracted Signal.
 3. **Task 8 — Convert signal to notes.** Build the shared pitch-tracking module (YIN/pYIN/CREPE) as part of this task — **Person C's Task 5 depends on this module**, so land a stable function signature for it early and communicate it, even before Task 8's full note-display output is finished.
-4. **Integration support:** Teach mode's note-display path (Part 2) and the pitch-accuracy sub-score feeding Person C's Task 5 scoring formula.
+4. **Practice mode — integration owner** (see "Mode integration ownership" below).
 
 ## Person C — Signal Storage & Alignment track
 
@@ -320,17 +320,23 @@ Three tracks, each owned by one person, ordered so each person's first task matc
 2. **Task 4 — Sync two signals.** Full DTW-based alignment (resolved — not just constant offset), with an incremental/streaming variant for the <1–2s latency modes.
 3. **Task 6 — Sync multiple (<5) signals.** Extends Task 4 to a group, with a live reference-reassignment path for Performance mode's performer-dropout handling (resolved in Part 2).
 4. **Task 5 — Compare two signals.** Depends on Task 4 (alignment) and on Person B's pitch-tracking module (Task 8) for the pitch-deviation metric. Implement the resolved `0.7 * pitch_accuracy + 0.3 * timing_accuracy` scoring formula.
-5. **Integration support:** Teach mode's `current_reference` state machine and grading flow (Part 2), and the sync/compare wiring for Practice and Performance modes.
+5. **Teach mode — integration owner** (see "Mode integration ownership" below).
+
+## Mode integration ownership
+
+Each mode from Part 2 touches all three tracks' outputs, but rather than treat integration as one undifferentiated joint session, each mode gets a single driving owner — the person whose track that mode leans on most — who pulls in the other two tracks' primitives via the shared interfaces below. The other two people support their piece of each mode as consumers of their own already-built tasks, not as separate new work.
+
+- **Teach mode → Person C owns.** Builds the `current_reference` state machine and the grading flow (Part 2's Teach mode steps 2–4, including the resolved overlap handling). Consumes: Person B's Task 7 (clean) + Task 8 (notes) to produce the displayed note output; Person A's room/role data to know who's the teacher vs. student. Person C already owns the scoring formula (Task 5), so this is a natural extension of that work.
+- **Practice mode → Person B owns.** Builds the dual-stream capture → clean → sync → mix → deliver flow (Part 2's Practice mode), including the resolved solo-singer behavior. Consumes: Person C's Task 4 (streaming sync) for the alignment step; Person A's Task 9 (routing) to deliver the second "enhanced" feed alongside the raw call.
+- **Performance mode → Person A owns.** Builds the group capture → clean → group-sync → route-to-listeners flow (Part 2's Performance mode), including the resolved lead-dropout reassignment. Consumes: Person B's Task 7 (streaming clean) per performer; Person C's Task 6 (group sync + reference reassignment). Natural fit since the listener/performer feed split is fundamentally a routing problem (Person A's Task 9).
+
+Each mode owner is responsible for the end-to-end wiring and testing of their mode, but the underlying primitives (sync, clean, notes, routing) stay owned by whoever built them in their track — mode owners integrate, they don't reimplement.
 
 ## Shared interfaces to lock down early
 
 - **Signal schema** (Person C, Task 3) — every other track's tasks read/write this. Treat changes to it as breaking changes requiring a heads-up to A and B.
 - **Pitch-tracking module** (Person B, Task 8) — consumed by Person C's Task 5. Agree on a stub signature (e.g. `extract_pitch_contour(audio) -> [{time_ms, pitch_hz, confidence}]`) before either side needs the real implementation, so both can develop against it in parallel.
 - **Streaming latency contract** — Tasks 4, 6, 7 (Person B/C) all need a <1–2s streaming variant; agree on a common "rolling buffer" input shape so these compose without each person inventing their own.
-
-## Final integration phase (all three)
-
-Once each person's individual tasks are in a working state, wire together Part 2's three modes — this is inherently cross-track (Teach touches B+C, Practice touches B+C+A's routing, Performance touches all three) and is best done as a joint session rather than assigned to one person.
 
 ---
 
