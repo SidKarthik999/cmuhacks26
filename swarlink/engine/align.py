@@ -114,29 +114,139 @@ def scan_offset_tempo(
     max_offset_ms: float = MAX_OFFSET_MS,
     tempo_range: Tuple[float, float] = TEMPO_RANGE,
     tempo_steps: int = 41,
+    fine_steps: int = 25,
 ) -> Tuple[float, float, float]:
     """Joint (offset_ms, tempo_ratio, confidence) search.
 
     `tempo_ratio` > 1 means `other` is *faster* than `ref`. For each candidate
     tempo the other take is resampled in the onset domain and the best lag is
     found by cross-correlation; the pair with the highest correlation wins.
-    """
-    env_a = _smooth_env(dsp.onset_envelope(ref, sr=sr, hop_ms=ONSET_HOP_MS))
-    env_b = _smooth_env(dsp.onset_envelope(other, sr=sr, hop_ms=ONSET_HOP_MS))
-    if env_a.size < 4 or env_b.size < 4:
-        return 0.0, 1.0, 0.0
 
-    max_lag = int(max_offset_ms / ONSET_HOP_MS)
-    best = (0.0, 1.0, -1.0)
-    for ratio in np.linspace(tempo_range[0], tempo_range[1], tempo_steps):
+    Searched in two passes, coarse then fine, because the grid resolution is
+    not a rounding detail -- it is the dominant error in the whole alignment.
+    A single 41-step pass over this range has a spacing of 0.0125, so a singer
+    genuinely 5% quick is measured as 5.5% quick, and half a percent of tempo
+    compounds into 19 ms of accumulated drift over four seconds. That was the
+    entire measured error on a clean pair of takes. A second pass across one
+    coarse cell costs 25 more correlations and brings the spacing to 0.001,
+    which is 2 ms over the same four seconds.
+    """
+    got = offset_tempo_candidates(
+        ref, other, sr=sr, max_offset_ms=max_offset_ms,
+        tempo_range=tempo_range, tempo_steps=tempo_steps,
+        fine_steps=fine_steps, top_k=1,
+    )
+    return got[0]
+
+
+def _onset_envs(
+    ref: np.ndarray, other: np.ndarray, sr: int
+) -> Tuple[np.ndarray, np.ndarray]:
+    return (
+        _smooth_env(dsp.onset_envelope(ref, sr=sr, hop_ms=ONSET_HOP_MS)),
+        _smooth_env(dsp.onset_envelope(other, sr=sr, hop_ms=ONSET_HOP_MS)),
+    )
+
+
+def _best_lag_over(
+    env_a: np.ndarray, env_b: np.ndarray, ratios: np.ndarray, max_lag: int
+) -> Tuple[float, float, float]:
+    """Best (offset_ms, tempo, confidence) over a set of candidate tempos."""
+    found = (0.0, 1.0, -1.0)
+    for ratio in ratios:
         n = max(int(round(env_b.size * ratio)), 4)
         warped = np.interp(
             np.linspace(0, env_b.size - 1, n), np.arange(env_b.size), env_b
         )
         lag, conf = _xcorr_peak(env_a, warped, max_lag)
-        if conf > best[2]:
-            best = (lag * ONSET_HOP_MS, float(ratio), conf)
-    return best
+        if conf > found[2]:
+            found = (lag * ONSET_HOP_MS, float(ratio), conf)
+    return found
+
+
+CANDIDATE_SEPARATION_MS = 140.0
+# Above this scan confidence the global estimate is taken at its word; the
+# failure mode that needs a second opinion is the one that announces itself
+# with a low correlation.
+CANDIDATE_RECHECK_CONF = 0.90
+CANDIDATE_MARGIN = 0.04
+
+
+def offset_tempo_candidates(
+    ref: np.ndarray,
+    other: np.ndarray,
+    sr: int = 22050,
+    max_offset_ms: float = MAX_OFFSET_MS,
+    tempo_range: Tuple[float, float] = TEMPO_RANGE,
+    tempo_steps: int = 41,
+    fine_steps: int = 25,
+    top_k: int = 6,
+) -> List[Tuple[float, float, float]]:
+    """Several plausible (offset, tempo, confidence) hypotheses, best first.
+
+    `scan_offset_tempo` assumes one tempo holds for the whole take, which is
+    exactly what rubato violates -- and when it does, the single best answer
+    can be very wrong rather than slightly wrong. Measured on takes whose
+    per-note durations differ, the scan put the entry 600 to 700 ms away from
+    the truth, far outside any reasonable DTW band, so the path had no chance
+    of recovering. It also reported a confidence of 0.57 where the metronomic
+    cases report 0.99, so the failure announces itself.
+
+    The fix is not a better global scan -- no global tempo exists for a take
+    that slows down and speeds up. It is to stop asking the scan to decide.
+    Handing several hypotheses to the DTW and keeping the cheapest path lets
+    the decision be made by the model that can actually represent rubato.
+
+    Candidates are kept apart by `CANDIDATE_SEPARATION_MS` so the list is
+    genuinely different starting points rather than one peak sampled three
+    times. The list has to be generous: on one rubato take the correct entry
+    was the scan's *fourth* choice, ranked below three wrong answers, and its
+    DTW path then cost eight times less than theirs. The scan's ranking is
+    close to worthless on this material; its candidate set is not.
+    """
+    env_a, env_b = _onset_envs(ref, other, sr)
+    if env_a.size < 4 or env_b.size < 4:
+        return [(0.0, 1.0, 0.0)]
+
+    max_lag = int(max_offset_ms / ONSET_HOP_MS)
+    coarse = np.linspace(tempo_range[0], tempo_range[1], tempo_steps)
+    found: List[Tuple[float, float, float]] = []
+    for ratio in coarse:
+        n = max(int(round(env_b.size * ratio)), 4)
+        warped = np.interp(
+            np.linspace(0, env_b.size - 1, n), np.arange(env_b.size), env_b
+        )
+        lag, conf = _xcorr_peak(env_a, warped, max_lag)
+        found.append((lag * ONSET_HOP_MS, float(ratio), conf))
+
+    found.sort(key=lambda c: -c[2])
+    picked: List[Tuple[float, float, float]] = []
+    for cand in found:
+        if all(abs(cand[0] - p[0]) >= CANDIDATE_SEPARATION_MS for p in picked):
+            picked.append(cand)
+        if len(picked) >= top_k:
+            break
+    picked = picked or [found[0]]
+
+    if fine_steps < 3 or tempo_steps < 2:
+        return picked
+
+    # Refine every candidate, not just the winner. The coarse grid's spacing
+    # is the largest single error in the whole aligner: at 0.0125 apart, a
+    # singer genuinely 5% quick is measured as 5.5% quick, and half a percent
+    # of tempo compounds into 19 ms of drift over four seconds -- which was
+    # the entire measured error on an otherwise clean pair of takes. It has to
+    # be applied per candidate, because the DTW may prefer any of them, and a
+    # candidate that only gets the coarse treatment arrives at the comparison
+    # already handicapped.
+    cell = float(coarse[1] - coarse[0])
+    refined: List[Tuple[float, float, float]] = []
+    for offset_ms, ratio, conf in picked:
+        lo = max(ratio - cell, tempo_range[0] * 0.98)
+        hi = min(ratio + cell, tempo_range[1] * 1.02)
+        fine = _best_lag_over(env_a, env_b, np.linspace(lo, hi, fine_steps), max_lag)
+        refined.append(fine if fine[2] >= conf else (offset_ms, ratio, conf))
+    return refined
 
 
 @dataclass
@@ -400,8 +510,19 @@ def align(
     sr: int = 22050,
     feature: str = "auto",
     band_ms: float = 260.0,
+    max_offset_ms: float = MAX_OFFSET_MS,
+    tempo_range: Tuple[float, float] = TEMPO_RANGE,
 ) -> Alignment:
     """Full alignment: global (offset, tempo) then a banded DTW refinement.
+
+    `max_offset_ms` and `tempo_range` exist to let a caller state what it
+    already knows. On strictly periodic material with no shared pitch content
+    -- a five-part chorale, where every voice sings a different line to the
+    same rhythm -- the entry offset is genuinely ambiguous modulo the beat,
+    and the scan will sometimes prefer "two notes plus 105 ms" to "105 ms".
+    No better feature fixes that; the information is not in the signal. What
+    does fix it is the caller knowing that network delay is under half a
+    second, and saying so.
 
     With `feature="auto"` the choice is made by measurement rather than by
     assumption: the DTW is run against each candidate representation and the
@@ -415,40 +536,69 @@ def align(
     if feature == "auto":
         best: Optional[Alignment] = None
         for candidate in ("mel", "hybrid"):
-            got = align(ref, other, sr=sr, feature=candidate, band_ms=band_ms)
+            got = align(
+                ref, other, sr=sr, feature=candidate, band_ms=band_ms,
+                max_offset_ms=max_offset_ms, tempo_range=tempo_range,
+            )
             got.method = f"{got.method}:{candidate}"
             if best is None or got.confidence > best.confidence:
                 best = got
         return best if best is not None else Alignment(0.0, 1.0, 0.0, "none")
 
-    offset_ms, tempo, conf = scan_offset_tempo(ref, other, sr=sr)
+    candidates = offset_tempo_candidates(
+        ref, other, sr=sr, max_offset_ms=max_offset_ms, tempo_range=tempo_range
+    )
+    offset_ms, tempo, conf = candidates[0]
 
     fa = _features(ref, sr, feature)
     fb = _features(other, sr, feature)
     if fa.shape[0] < 4 or fb.shape[0] < 4:
         return Alignment(offset_ms, tempo, conf, "offset_tempo")
 
+    # Widen the band when the global scan is unsure of itself. A narrow band
+    # is a statement that the centre line is nearly right, and a confidence of
+    # 0.6 is the scan saying it is not.
+    scale = float(np.clip(1.0 / max(conf, 0.2), 1.0, 3.0))
+    band = max(int(band_ms * scale / ONSET_HOP_MS), 8)
+
     # other_frame = ref_frame / tempo + offset_frames. Using `tempo` as the
     # slope instead of its reciprocal walks the band off the true path by
     # (tempo - 1/tempo) * duration, which at 1.07 over four seconds is half a
     # second -- far outside any sane band, so the path gets dragged.
-    offset_frames = offset_ms / ONSET_HOP_MS
-    band = max(int(band_ms / ONSET_HOP_MS), 8)
-    slope = 1.0 / max(tempo, 1e-6)
-    path, mean_cost = _banded_dtw(fa, fb, slope, offset_frames, band)
-    dtw_conf = float(np.clip(1.0 - mean_cost, 0.0, 1.0))
+    def run_dtw(off: float, tem: float) -> Tuple[np.ndarray, float]:
+        return _banded_dtw(
+            fa, fb, 1.0 / max(tem, 1e-6), off / ONSET_HOP_MS, band
+        )
 
-    if path.shape[0] < 4:
+    best_path, best_cost = run_dtw(offset_ms, tempo)
+    best_pair = (offset_ms, tempo, conf)
+
+    # Only reconsider when the scan admits it is unsure, and then only for a
+    # clear improvement. Letting mean path cost arbitrate unconditionally made
+    # the metronomic cases four times worse: a path that matches fewer, more
+    # similar frames can be cheaper than the correct one, so an unmargined
+    # comparison trades a right answer for a cheap one.
+    if conf < CANDIDATE_RECHECK_CONF:
+        for cand_offset, cand_tempo, cand_conf in candidates[1:]:
+            path, mean_cost = run_dtw(cand_offset, cand_tempo)
+            if path.shape[0] >= 4 and mean_cost < best_cost * (1.0 - CANDIDATE_MARGIN):
+                best_path, best_cost = path, mean_cost
+                best_pair = (cand_offset, cand_tempo, cand_conf)
+
+    if best_path.shape[0] < 4:
         return Alignment(offset_ms, tempo, conf, "offset_tempo")
+
+    offset_ms, tempo, conf = best_pair
+    dtw_conf = float(np.clip(1.0 - best_cost, 0.0, 1.0))
     al = Alignment(
         offset_ms=offset_ms,
         tempo_ratio=tempo,
         confidence=max(conf, dtw_conf),
         method="banded_dtw",
-        path=path,
+        path=best_path,
         hop_ms=ONSET_HOP_MS,
     )
-    kx, ky = warp_knots(al)
+    kx, ky = warp_knots(al, novelty=feature_novelty(fa))
     al.knot_ref_ms, al.knot_src_ms = kx, ky
     return al
 
@@ -631,7 +781,46 @@ WARP_HOP = 256
 KNOT_MS = 250.0
 
 
-def warp_knots(alignment: Alignment, knot_ms: float = KNOT_MS) -> Tuple[np.ndarray, np.ndarray]:
+# How sharply to discount the DTW path as feature novelty falls. Calibrated by
+# `checks/calibrate_warp.py` against two families of ground truth at once:
+# takes related by a pure shift and stretch, which reward maximum shrinkage,
+# and takes with genuine per-note rubato, which a straight line cannot fit at
+# all. Tuning on either family alone gives the wrong answer.
+#
+# Chosen on the joint evidence of that sweep and `check_align`, which is the
+# broader sample: 2.0 gives the better median error on metronomic takes
+# (8.3 ms against 11.3) and the better worst case on rubato (227 ms against
+# 318), and it is the only value in the range that passes all 46 alignment
+# assertions across five voice types. The sweep's own composite marginally
+# prefers 1.0, but it rests on fifteen takes and moves by more than that
+# margin between neighbouring values, so it is not the stronger evidence.
+NOVELTY_POWER = 2.0
+
+
+def feature_novelty(feats: np.ndarray) -> np.ndarray:
+    """Per-frame rate of change of a feature sequence, scaled to roughly 0..1.
+
+    This is the alignment's own measure of where it has something to go on.
+    Frames inside a sustained vowel are near-identical to their neighbours, so
+    a path that wanders across them costs almost nothing and is therefore
+    almost unconstrained; frames at a note change are distinctive, and a path
+    that puts them in the wrong place pays for it.
+    """
+    if feats.shape[0] < 2:
+        return np.zeros(feats.shape[0])
+    delta = np.linalg.norm(np.diff(feats, axis=0), axis=1)
+    nov = np.concatenate([delta[:1], delta])
+    width = 9
+    nov = np.convolve(nov, np.ones(width) / width, mode="same")
+    scale = float(np.quantile(nov, 0.9)) or (float(np.max(nov)) or 1.0)
+    return np.clip(nov / scale, 0.0, 1.0)
+
+
+def warp_knots(
+    alignment: Alignment,
+    knot_ms: float = KNOT_MS,
+    novelty: Optional[np.ndarray] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
     """Reduce the DTW path to a monotone piecewise-linear curve.
 
     The raw path is a staircase: horizontal runs mean "several reference
@@ -644,6 +833,17 @@ def warp_knots(alignment: Alignment, knot_ms: float = KNOT_MS) -> Tuple[np.ndarr
     ignores the dwell length and reports where the bin actually matched. Bins
     of a quarter second give two knots per note at typical tempos, which is
     enough to follow a real rubato but too coarse to chase frame noise.
+
+    Given `novelty`, each knot is then shrunk toward the global offset-and-
+    tempo line in proportion to how little evidence the DTW had there. This is
+    the single largest correction in the aligner. Measured against fixtures
+    whose true mapping is exactly a shift and a stretch, the unshrunk knots
+    were *worse* than the straight line in seven cases out of eight -- 13.9 ms
+    of median error where the line gave 0.5 ms -- because a quarter-second bin
+    in the middle of a held note contains no information about timing, and the
+    median of an unconstrained wander is still a wander. Shrinking costs
+    nothing where there is no evidence and yields fully at note changes, which
+    is where real rubato shows up anyway.
     """
     ref_ms = alignment.path[:, 0].astype(np.float64) * alignment.hop_ms
     oth_ms = alignment.path[:, 1].astype(np.float64) * alignment.hop_ms
@@ -652,18 +852,32 @@ def warp_knots(alignment: Alignment, knot_ms: float = KNOT_MS) -> Tuple[np.ndarr
     edges = np.linspace(ref_ms[0], ref_ms[-1], n_bins + 1)
     which = np.clip(np.searchsorted(edges, ref_ms, side="right") - 1, 0, n_bins - 1)
 
-    knot_x, knot_y = [], []
+    knot_x, knot_y, knot_w = [], [], []
     for b in range(n_bins):
         sel = which == b
         if not np.any(sel):
             continue
         knot_x.append(float(np.median(ref_ms[sel])))
         knot_y.append(float(np.median(oth_ms[sel])))
+        if novelty is None:
+            knot_w.append(1.0)
+        else:
+            idx = np.clip(
+                (ref_ms[sel] / alignment.hop_ms).astype(int), 0, novelty.size - 1
+            )
+            knot_w.append(float(np.mean(novelty[idx])))
     if len(knot_x) < 2:
         return ref_ms[[0, -1]], oth_ms[[0, -1]]
+
     kx = np.asarray(knot_x)
-    ky = np.maximum.accumulate(np.asarray(knot_y))
-    return kx, ky
+    ky = np.asarray(knot_y)
+    if novelty is not None and NOVELTY_POWER > 0.0:
+        w = np.clip(np.asarray(knot_w), 0.0, 1.0) ** NOVELTY_POWER
+        linear = kx / max(alignment.tempo_ratio, 1e-6) + alignment.offset_ms
+        ky = w * ky + (1.0 - w) * linear
+    elif novelty is not None:
+        ky = kx / max(alignment.tempo_ratio, 1e-6) + alignment.offset_ms
+    return kx, np.maximum.accumulate(ky)
 
 
 def source_time_ms(alignment: Alignment, ref_times_ms: np.ndarray) -> np.ndarray:
