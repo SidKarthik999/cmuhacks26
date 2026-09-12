@@ -409,4 +409,71 @@ Document this explicitly in `docs/integration-contracts.md` before either side i
 
 ---
 
-*Roadmap updated with the three-mode composition layer (Teach, Practice, Performance) and the 3-person team assignment. All previously flagged open questions are resolved (max participants, tempo-drift/DTW requirement, cleaning-automatic behavior, scoring formula, overlap handling, Practice mode single-singer behavior, Performance mode dropout handling). No open questions remain as of this revision — future design changes should be added as new `> **Open question:**` callouts as they arise.*
+# Part 5: Status after the first integration pass, and round-2 assignments
+
+The three tracks from Part 3 have been built, merged, and run live (video call across two real devices, LiveKit-backed, with the real audio backend attached and confirmed audible in Performance mode). This section replaces Part 3 as the active assignment — read it instead of re-deriving from Part 3 when picking up work now.
+
+## Current status
+
+| Task | Status |
+|------|--------|
+| 1 — Video conversation platform | **Done.** LiveKit wired for real (not just scaffolded) — `platform/src/call/LiveKitCallSession.ts` connects, publishes local mic+camera, subscribes to remote audio+video. `platform/src/main.ts` renders real `<video>` tiles. Confirmed working across two physical devices over a public tunnel. |
+| 2 — Singing detection | **Done.** `audio-intelligence/detection/` (YIN-based). |
+| 3 — Signal extraction, storage, replay | **Done.** `signal-processing/storage/`. |
+| 4 — Sync two signals | **Done.** `signal-processing/sync/`. Includes the resolved DTW-warp-path requirement, a streaming variant, a timestamp-offset fallback for unrelated content, and (after two rounds of live-audio debugging) an emit-cursor + crossfade fix so streaming output doesn't stutter or click at chunk boundaries. |
+| 5 — Compare two signals | **Done.** `signal-processing/compare/`. Implements the resolved 70/30 pitch/timing score; reuses Task 8's pitch tracker; explicitly refuses to score a `timestamp_offset`-fallback alignment rather than fabricating a number. |
+| 6 — Sync multiple (<5) signals | **Stand-in only, not the real task.** `backend/worker.py`'s `PerformanceGroupSession` does pairwise composition (pick a reference, pairwise-align everyone else) — functionally works, but has no live sync-anchor reassignment on performer dropout the way Part 2's Performance mode spec requires. That logic exists only as an inert TypeScript stub (`modes/performance/stubs/groupSync.ts`) that never runs once a real backend is attached. **This is the top remaining gap for Performance mode.** |
+| 7 — Signal cleaning | **Done.** `audio-intelligence/cleaning/` (spectral subtraction, batch + streaming). |
+| 8 — Notes from signal | **Done** as a library (`audio-intelligence/notes/`), but **not surfaced anywhere in the UI.** Nobody sees note output on screen yet. |
+| 9 — Multi-feed audio routing | **Done.** `platform/src/feedRouter.ts`, and — as of this pass — actually carrying real processed audio (not just unit-tested in isolation): `backend/worker.py` + `backend/supervisor.py` auto-attach to every room and publish real mixes through it. |
+
+| Mode | Status |
+|------|--------|
+| Practice | **Working**, wired to the real backend end-to-end. |
+| Performance | **Working, confirmed live** (this session's goal) — real video, real mic capture, real DTW-synced mix audible on a listener's device. Still has real gaps, listed below. |
+| Teach | **Not built.** No code exists in `modes/teach/`. Task 5 (its main dependency) is now done, so this is unblocked. |
+
+## New framework pieces built this pass (not in the original 8 tasks)
+
+- `backend/worker.py` — the real out-of-process Python backend: connects to the platform as `role=processor`, runs real Task 2/4/7 (and the Task 6 stand-in) on real audio, replacing the in-process TypeScript stubs.
+- `backend/supervisor.py` — auto-attaches a worker to every Practice/Performance room; no manual per-room command needed.
+- `platform/api/server.ts` — the `role=processor` fan-out, a generalized `mix_chunk` message type, and a `processing` status field on `GET /rooms` so the UI can show whether real processing is actually running.
+- `platform/src/main.ts` — real video tiles, mic tap → backend, processed-feed playback, a visible room code, and a "Real processing: ON/OFF" status badge.
+- Two audible bugs found and fixed only by testing with real human audio (not synthetic test fixtures): chunk-boundary discontinuities (crossfade fix) and local mic → local speaker feedback + a browser autoplay-suspended `AudioContext` that could silently produce no sound.
+
+## Known open gaps (tracked in `docs/integration-contracts.md`)
+
+- Room state is in-memory only — an API server restart wipes every room. Caused real confusion during live testing this session.
+- `audio_track.schema.json`'s metadata (`track_id`/`format`/`is_remote`) isn't threaded through the WS boundary into Person B's detector/cleaner inputs.
+- `render_aligned_playback`'s time-warp resampling is naive linear interpolation (`np.interp`), not pitch-preserving (phase vocoder/WSOLA) — a residual source of small audio artifacts independent of the chunking/crossfade fixes.
+- `backend/worker.py` assumes one canonical sample rate per session; two participants' browsers reporting different native rates isn't handled.
+- Performance mode has only been exercised live with 2 performers + 1 listener, never 3-4 performers or a live performer dropout/reassignment.
+- `PerformanceGroupSession` never writes to Task 3's `SignalStore` — only Practice mode's session does. Teach mode and any future replay/analysis need Performance's Signals captured too.
+
+## Round-2 assignments
+
+Each person keeps roughly the ownership area they already have context on, but the tasks themselves are different from Part 3 — this is hardening + one net-new mode, not the original 8 tasks.
+
+### Person A — Platform & routing track
+
+1. **Room persistence.** Rooms currently live only in `RoomStore`'s in-memory `Map`. Add a simple durable backing (SQLite is fine, matching `signal-processing/storage/`'s existing pattern) so an API server restart doesn't lose every active room. This is the fix most likely to unblock smooth live testing going forward.
+2. **Multi-performer + dropout live testing.** Exercise Performance mode with 3-4 real performers and a real mid-session dropout (a performer leaving) against the real backend (`backend/worker.py`, once Person C's Task 6 lands below) — find and fix whatever routing/subscription issues show up; today this path is only unit-tested with the TS stub, never run live with a real backend attached.
+3. **Task 8 note display in the UI.** `audio-intelligence/notes/` already produces note events; nothing shows them on screen. Add a channel (extend the existing `mix_chunk`/`feed_chunk` WS messages, or a new message type) to push note events to the right participants' screens, and render them (note names are enough — a piano-roll is a nice-to-have, not required).
+4. **Dynamic feed re-subscription + clean participant-leave handling.** `startFeedPlayback` in `main.ts` only subscribes once, at join; if `room.feeds[participant_id]` changes later (e.g. a role change) the client never resubscribes. Also confirm a participant leaving mid-session doesn't leave a stale/broken worker-side session (`PracticeSession` in particular assumes exactly 2 participants for its lifetime).
+
+### Person B — Audio intelligence & quality track
+
+1. **Replace naive resampling with pitch-preserving time-stretch.** `signal-processing/sync/playback.py`'s `render_aligned_playback` uses raw `np.interp` on waveform samples. Swap in a phase vocoder or WSOLA-style approach for the actual audio people hear — should measurably reduce artifacts independent of the chunking fix already in place.
+2. **Handle mismatched sample rates across participants.** `backend/worker.py` assumes one global rate per session (whatever the first chunk reports). Resample each incoming stream to a canonical rate before cleaning/aligning, so two different browsers/devices reporting different native rates doesn't silently corrupt the mix.
+3. **Close the `audio_track.schema.json` round-trip gap.** Thread `track_id`/`format`/`is_remote` from the WS `audio_chunk` message through into `SingingDetector`/`StreamingCleaner`'s actual inputs, instead of the metadata existing only on the platform side.
+4. **Wire Task 3 storage into Performance mode.** `modes/practice/pipeline.PracticeSession` already saves + auto-cleans Signals via `SignalStore`. `backend/worker.py`'s `PerformanceGroupSession` doesn't persist anything. Add the same capture-on-singing-stop behavior there, attributed per performer, so Performance sessions leave behind real Signals for replay/analysis/Teach-mode-style grading later.
+
+### Person C — Signal alignment & Teach mode track (mine)
+
+1. **Real Task 6.** Replace `PerformanceGroupSession`'s pairwise-composed stand-in with genuine streaming group sync: live sync-anchor reassignment when the current anchor (lead or otherwise) drops out, picking whoever's been singing longest among the remaining active performers — the exact rule Part 2's Performance mode section already specifies, currently only implemented (inertly) in the TypeScript stub. This is the top item for "Performance mode working well" beyond what's already confirmed live.
+2. **Teach mode.** Build the `current_reference` state machine and grading flow from Part 2's spec: teacher sings → notes shown to both, sets `current_reference`; student sings → notes shown, graded against `current_reference` via Task 5's now-complete `compare_signals` if one exists; the resolved overlap-handling rule (teacher's Signal wins the reference on simultaneous singing). Wire into `modes/teach/`, `backend/worker.py`'s mode dispatch (currently only handles `"practice"`/`"performance"`), and the UI (score display).
+3. **Integration test for the browser audio path.** `backend/tests/test_backend_worker_integration.py` proves the server-to-backend loop end-to-end but stands in for the browser with raw WebSocket messages. The two bugs found by live-testing this pass (mic echo, suspended `AudioContext`) weren't things any existing test could have caught. Add whatever automated coverage is practical here (a headless-browser test via Playwright is the most faithful option; a scripted check of `AudioTrackTap`'s graph wiring and `AudioContext.state` handling is a lighter-weight fallback) so audible-output regressions don't require a live two-device test to catch again.
+
+---
+
+*Roadmap updated after the first live integration pass: video calling, Task 1-9 (Task 6 as a stand-in), and Performance mode confirmed working end-to-end across two real devices with the real audio backend attached. Task 5 (compare/score) completed this pass. Teach mode remains unbuilt. See Part 5 for current status and the round-2 3-person split — it supersedes Part 3 for active work.*
