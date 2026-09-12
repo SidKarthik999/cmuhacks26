@@ -1,0 +1,18 @@
+{
+  "id": "sig_00000000-0000-0000-0000-000000000001",
+  "participant_id": "participant_teacher",
+  "room_id": "room_demo",
+  "role": "teacher",
+  "mode": "teach",
+  "start_time": 1000.0,
+  "end_time": 2500.0,
+  "sample_rate": 44100,
+  "channels": 1,
+  "audio_ref": "signals/sig_00000000-0000-0000-0000-000000000001.wav",
+  "audio_format": "wav",
+  "sample_width_bytes": 2,
+  "metadata": {
+    "detected_confidence": 0.94,
+    "cleaned": false
+  }
+}

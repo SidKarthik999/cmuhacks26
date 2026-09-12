@@ -1,0 +1,94 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cmuhacks26/shared/schemas/signal.schema.json",
+  "title": "Signal",
+  "description": "A discrete, storable, replayable musical signal extracted from a singing segment. Owned by Person C (Task 3). Breaking changes require a version bump and a heads-up to Person A and Person B before merging.",
+  "type": "object",
+  "version": 1,
+  "required": [
+    "id",
+    "participant_id",
+    "room_id",
+    "start_time",
+    "end_time",
+    "sample_rate",
+    "channels",
+    "audio_ref",
+    "audio_format",
+    "metadata"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique Signal identifier (UUID recommended)."
+    },
+    "participant_id": {
+      "type": "string",
+      "description": "Who sang this signal."
+    },
+    "room_id": {
+      "type": "string",
+      "description": "Room/session this signal was captured in."
+    },
+    "role": {
+      "type": ["string", "null"],
+      "description": "The participant's mode-specific role at capture time (e.g. teacher/student, performer/lead/listener, peer). Populated by Task 1's room/role data; null if unknown/not applicable."
+    },
+    "mode": {
+      "type": ["string", "null"],
+      "enum": ["teach", "practice", "performance", null],
+      "description": "The room's mode at capture time."
+    },
+    "start_time": {
+      "type": "number",
+      "description": "Start timestamp in milliseconds since epoch (or room-relative ms, must be consistent within a room)."
+    },
+    "end_time": {
+      "type": "number",
+      "description": "End timestamp, same clock basis as start_time. Must be >= start_time."
+    },
+    "sample_rate": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Audio sample rate in Hz."
+    },
+    "channels": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1,
+      "description": "Number of audio channels."
+    },
+    "audio_ref": {
+      "type": "string",
+      "description": "Reference to the stored audio blob (e.g. a storage-relative path or URI). Not the raw bytes themselves."
+    },
+    "audio_format": {
+      "type": "string",
+      "enum": ["wav", "flac"],
+      "description": "Encoding of the blob at audio_ref. Lossless only — downstream cleaning/note-conversion tasks are sensitive to compression artifacts."
+    },
+    "sample_width_bytes": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 2,
+      "description": "Bytes per sample (e.g. 2 for 16-bit PCM)."
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Free-form extension point. Add new fields here rather than changing existing top-level fields.",
+      "properties": {
+        "detected_confidence": {
+          "type": ["number", "null"],
+          "description": "Task 2 singing-detection confidence that produced this Signal's boundaries."
+        },
+        "cleaned": {
+          "type": "boolean",
+          "default": false,
+          "description": "Set true by Task 7 once this Signal has been through noise-cleaning."
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}
