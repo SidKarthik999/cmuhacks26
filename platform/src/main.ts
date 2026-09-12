@@ -6,11 +6,15 @@ import { MockCallSession } from "./call/MockCallSession.js";
 import { LiveKitCallSession } from "./call/LiveKitCallSession.js";
 import { AudioTrackTap, float32ToBase64 } from "./audio/AudioTrackTap.js";
 
+// Empty string -> requests resolve relative to the page's own origin (via
+// Vite's /rooms, /health, /ws proxy to the API server), which is what makes
+// this work from a second device through a tunnel -- "localhost:8787"
+// would mean THAT device's own localhost, not this machine's.
 const API =
   (typeof import.meta !== "undefined" &&
     (import.meta as ImportMeta & { env?: { VITE_PLATFORM_API?: string } }).env
       ?.VITE_PLATFORM_API) ||
-  "http://localhost:8787";
+  "";
 
 /** Same-origin WebSocket base -- works whether the page loads from a plain
  * LAN address or through an HTTPS tunnel, since it rides Vite's /ws proxy
@@ -20,8 +24,20 @@ function wsBase(): string {
   return `${protocol}//${window.location.host}`;
 }
 
+/** Additive field platform/api/server.ts attaches to GET /rooms responses
+ * -- whether a real backend/worker.py is attached to this room (vs. the
+ * in-process TypeScript stub) and what it last reported. Not part of
+ * room_state.schema.json (UI-facing only). */
+type ProcessingStatus = {
+  active: boolean;
+  last_meta: Record<string, unknown> | null;
+  last_feed: string | null;
+  last_update_ms: number | null;
+};
+type RoomWithProcessing = RoomState & { processing?: ProcessingStatus };
+
 type Session = {
-  room: RoomState;
+  room: RoomWithProcessing;
   participant_id: string;
   display_name: string;
   role: ParticipantRole;
@@ -320,6 +336,27 @@ function playFeedChunk(s: Session, feed: string, msg: Record<string, unknown>): 
   s.playCursor.set(feed, startAt + buffer.duration);
 }
 
+/** Human-readable detail line for the processing-status badge -- which
+ * feed the real backend last produced, and a couple of its meta fields
+ * (e.g. "used_sync", "anchor_participant_id"), or how long ago it was
+ * seen if it's gone quiet. */
+function describeProcessingDetail(processing?: ProcessingStatus): string {
+  if (!processing?.active) {
+    return "no backend/worker.py attached to this room yet";
+  }
+  const parts: string[] = [];
+  if (processing.last_feed) parts.push(`feed=${processing.last_feed}`);
+  for (const [k, v] of Object.entries(processing.last_meta ?? {})) {
+    if (v === null || v === undefined || v === "") continue;
+    parts.push(`${k}=${Array.isArray(v) ? v.join(",") : v}`);
+  }
+  if (processing.last_update_ms) {
+    const ageSec = Math.max(0, Math.round((Date.now() - processing.last_update_ms) / 1000));
+    parts.push(`${ageSec}s ago`);
+  }
+  return parts.join(" · ");
+}
+
 function renderCall(): void {
   if (!session) return;
   const { room, participant_id, call, livekit } = session;
@@ -360,18 +397,45 @@ function renderCall(): void {
     ]);
   });
 
+  const copyBtn = el("button", { className: "secondary", type: "button" }, ["Copy room code"]);
+  copyBtn.addEventListener("click", () => {
+    void navigator.clipboard?.writeText(room.room_id).then(
+      () => {
+        copyBtn.textContent = "Copied!";
+        setTimeout(() => {
+          copyBtn.textContent = "Copy room code";
+        }, 1500);
+      },
+      () => undefined,
+    );
+  });
+
   app.replaceChildren(
     el("section", { className: "call" }, [
+      el("div", { className: "room-code-banner" }, [
+        el("div", {}, [
+          el("span", { className: "room-code-label" }, ["Room code — share with others to join:"]),
+          el("code", { className: "room-code" }, [room.room_id]),
+        ]),
+        copyBtn,
+      ]),
       el("div", { className: "call-header" }, [
         el("div", {}, [
           el("h1", {}, ["Ensemble"]),
           el("div", { className: "meta" }, [
-            `Room ${room.room_id} · ${room.mode} · you are ${me?.role ?? "?"} (${participant_id})`,
+            `${room.mode} · you are ${me?.role ?? "?"} (${participant_id})`,
           ]),
           el("div", { className: "meta" }, [
             livekit.mock
               ? "LiveKit credentials not set — using mock SFU session (no real audio/video)."
               : `LiveKit: ${livekit.url}`,
+          ]),
+          el("div", { className: "meta processing-meta" }, [
+            el("span", {
+              className: `badge ${room.processing?.active ? "badge-active" : "badge-inactive"}`,
+            }, [room.processing?.active ? "Real processing: ON" : "Real processing: OFF"]),
+            " ",
+            describeProcessingDetail(room.processing),
           ]),
         ]),
         el("button", {
@@ -424,7 +488,7 @@ renderLanding();
 // Poll room state while in call so joins from other tabs/devices appear.
 setInterval(() => {
   if (!session) return;
-  void api<RoomState>(`/rooms/${encodeURIComponent(session.room.room_id)}`)
+  void api<RoomWithProcessing>(`/rooms/${encodeURIComponent(session.room.room_id)}`)
     .then((room) => {
       if (!session) return;
       session.room = room;

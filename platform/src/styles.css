@@ -131,6 +131,31 @@ button:disabled {
   padding: 1.25rem clamp(1rem, 4vw, 2.5rem) 2rem;
 }
 
+.room-code-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  background: rgba(212, 160, 23, 0.12);
+  border: 1px solid var(--accent);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+}
+
+.room-code-label {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-right: 0.5rem;
+}
+
+.room-code {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
 .call-header {
   display: flex;
   flex-wrap: wrap;
@@ -187,6 +212,20 @@ button:disabled {
   padding: 0.15rem 0.45rem;
   border-radius: 0.25rem;
   font-weight: 600;
+}
+
+.badge-active {
+  background: var(--accent-2);
+}
+
+.badge-inactive {
+  background: var(--muted);
+}
+
+.processing-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .feeds {

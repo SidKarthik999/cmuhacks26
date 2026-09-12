@@ -74,7 +74,12 @@ export function createPlatformApi(opts?: { port?: number }): PlatformApi {
       }
 
       if (req.method === "GET" && url.pathname === "/rooms") {
-        sendJson(res, 200, { rooms: store.listRooms() });
+        sendJson(res, 200, {
+          rooms: store.listRooms().map((r) => ({
+            ...r,
+            processing: getProcessingStatus(r.room_id),
+          })),
+        });
         return;
       }
 
@@ -104,7 +109,7 @@ export function createPlatformApi(opts?: { port?: number }): PlatformApi {
           sendJson(res, 404, { error: "room not found" });
           return;
         }
-        sendJson(res, 200, room);
+        sendJson(res, 200, { ...room, processing: getProcessingStatus(room.room_id) });
         return;
       }
 
@@ -183,6 +188,42 @@ export function createPlatformApi(opts?: { port?: number }): PlatformApi {
   // so existing tests/behavior aren't affected.
   const processors = new Map<string, Set<WebSocket>>();
 
+  // UI-facing status: is a real backend attached to this room, and what did
+  // it last report (e.g. sync confidence/method)? Exposed via GET
+  // /rooms/:id so the web UI can show "real processing" vs. the in-process
+  // stub is what's actually running.
+  interface ProcessingStatus {
+    active: boolean;
+    last_meta: Record<string, unknown> | null;
+    last_feed: string | null;
+    last_update_ms: number | null;
+  }
+  const processingStatus = new Map<string, ProcessingStatus>();
+
+  function getProcessingStatus(room_id: string): ProcessingStatus {
+    return (
+      processingStatus.get(room_id) ?? {
+        active: false,
+        last_meta: null,
+        last_feed: null,
+        last_update_ms: null,
+      }
+    );
+  }
+
+  function setProcessorActive(room_id: string, active: boolean): void {
+    processingStatus.set(room_id, { ...getProcessingStatus(room_id), active });
+  }
+
+  function recordMix(room_id: string, feed: string, meta: Record<string, unknown>): void {
+    processingStatus.set(room_id, {
+      active: true,
+      last_meta: meta,
+      last_feed: feed,
+      last_update_ms: Date.now(),
+    });
+  }
+
   function forwardToProcessors(room_id: string, raw: string): boolean {
     const set = processors.get(room_id);
     if (!set || set.size === 0) return false;
@@ -240,9 +281,13 @@ export function createPlatformApi(opts?: { port?: number }): PlatformApi {
         processors.set(room_id, set);
       }
       set.add(ws);
+      setProcessorActive(room_id, true);
       ws.on("close", () => {
         set!.delete(ws);
-        if (set!.size === 0) processors.delete(room_id);
+        if (set!.size === 0) {
+          processors.delete(room_id);
+          setProcessorActive(room_id, false);
+        }
       });
       // Falls through to the shared message handler below so a processor
       // can also send mix_chunk / performance_mix_chunk back on this same
@@ -307,16 +352,19 @@ export function createPlatformApi(opts?: { port?: number }): PlatformApi {
         );
         const room = store.getRoom(room_id);
         if (room) router.syncFromRoomFeeds(room.feeds);
+        const feed = (msg.feed as AudioFeedChunk["feed"]) ?? "performance_mix";
+        const meta = (msg.meta as Record<string, unknown>) ?? {};
         router.publish({
-          feed: (msg.feed as AudioFeedChunk["feed"]) ?? "performance_mix",
+          feed,
           room_id,
           timestamp_ms: Number(msg.timestamp_ms ?? 0),
           sample_rate: Number(msg.sample_rate ?? 48000),
           channels: 1,
           format: "pcm_f32",
           samples,
-          meta: (msg.meta as Record<string, unknown>) ?? {},
+          meta,
         });
+        recordMix(room_id, feed, meta);
       }
 
       if (msg.type === "performance_mix_chunk") {
@@ -330,6 +378,10 @@ export function createPlatformApi(opts?: { port?: number }): PlatformApi {
         );
         const room = store.getRoom(room_id);
         if (room) router.syncFromRoomFeeds(room.feeds);
+        const meta = {
+          anchor_participant_id: msg.anchor_participant_id,
+          contributor_ids: msg.contributor_ids,
+        };
         router.publish({
           feed: "performance_mix",
           room_id,
@@ -338,11 +390,9 @@ export function createPlatformApi(opts?: { port?: number }): PlatformApi {
           channels: 1,
           format: "pcm_f32",
           samples,
-          meta: {
-            anchor_participant_id: msg.anchor_participant_id,
-            contributor_ids: msg.contributor_ids,
-          },
+          meta,
         });
+        recordMix(room_id, "performance_mix", meta);
       }
     });
   });
