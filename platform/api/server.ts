@@ -4,7 +4,7 @@
 import http from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
 import { RoomStore } from "../src/roomStore.js";
-import { MultiFeedRouter } from "../src/feedRouter.js";
+import { MultiFeedRouter, type AudioFeedChunk } from "../src/feedRouter.js";
 import { mintLiveKitToken } from "./livekitTokens.js";
 import { PerformanceOrchestrator } from "../../modes/performance/performanceMode.js";
 import type { ParticipantRole, RoomMode } from "../../shared/bindings/room_state.js";

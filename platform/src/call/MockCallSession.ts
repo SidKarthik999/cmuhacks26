@@ -3,7 +3,7 @@
  * Still exposes per-participant AudioTrack handles as required by Task 1 outputs.
  */
 import type { AudioTrack } from "../../../shared/bindings/audio_track.js";
-import type { CallSession, TrackHandler } from "./CallSession.js";
+import type { CallSession, TrackHandler, VideoTrackHandler, VideoTrackInfo } from "./CallSession.js";
 
 export class MockCallSession implements CallSession {
   readonly room_id: string;
@@ -80,5 +80,14 @@ export class MockCallSession implements CallSession {
 
   getMediaStreamTrack(track_id: string): MediaStreamTrack | null {
     return this.media.get(track_id) ?? null;
+  }
+
+  // No real WebRTC media in mock mode -- nothing to show as video.
+  listVideoTracks(): VideoTrackInfo[] {
+    return [];
+  }
+
+  onVideoTrack(_handler: VideoTrackHandler): () => void {
+    return () => {};
   }
 }

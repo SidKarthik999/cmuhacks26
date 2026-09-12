@@ -163,7 +163,16 @@ button:disabled {
   background: rgba(0, 0, 0, 0.22);
   padding: 0.75rem;
   display: grid;
-  align-content: space-between;
+  gap: 0.5rem;
+  align-content: start;
+}
+
+.tile-video {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 0.35rem;
+  background: #000;
+  object-fit: cover;
 }
 
 .tile strong {

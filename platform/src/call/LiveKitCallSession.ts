@@ -5,7 +5,7 @@
  * Falls back gracefully when livekit-client is unavailable at build time for tests.
  */
 import type { AudioTrack } from "../../../shared/bindings/audio_track.js";
-import type { CallSession, TrackHandler } from "./CallSession.js";
+import type { CallSession, TrackHandler, VideoTrackHandler, VideoTrackInfo } from "./CallSession.js";
 
 type LiveKitRoomLike = {
   connect(url: string, token: string): Promise<void>;
@@ -50,6 +50,9 @@ export class LiveKitCallSession implements CallSession {
   private tracks = new Map<string, AudioTrack>();
   private media = new Map<string, MediaStreamTrack | null>();
   private handlers = new Set<TrackHandler>();
+  private videoTracks = new Map<string, VideoTrackInfo>();
+  private videoMedia = new Map<string, MediaStreamTrack | null>();
+  private videoHandlers = new Set<VideoTrackHandler>();
 
   constructor(opts: LiveKitCallSessionOpts) {
     this.room_id = opts.room_id;
@@ -74,13 +77,21 @@ export class LiveKitCallSession implements CallSession {
         sid?: string;
       };
       const participant = args[2] as { identity?: string };
-      if (track?.kind !== "audio") return;
-      this.registerTrack({
-        track_id: track.sid ?? `trk_${participant.identity}_audio`,
-        participant_id: participant.identity ?? "unknown",
-        is_remote: true,
-        media: track.mediaStreamTrack,
-      });
+      if (track?.kind === "audio") {
+        this.registerTrack({
+          track_id: track.sid ?? `trk_${participant.identity}_audio`,
+          participant_id: participant.identity ?? "unknown",
+          is_remote: true,
+          media: track.mediaStreamTrack,
+        });
+      } else if (track?.kind === "video") {
+        this.registerVideoTrack({
+          track_id: track.sid ?? `trk_${participant.identity}_video`,
+          participant_id: participant.identity ?? "unknown",
+          is_remote: true,
+          media: track.mediaStreamTrack,
+        });
+      }
     });
     await this.room.connect(this.url, this.token);
   }
@@ -90,6 +101,8 @@ export class LiveKitCallSession implements CallSession {
     this.room = null;
     this.tracks.clear();
     this.media.clear();
+    this.videoTracks.clear();
+    this.videoMedia.clear();
   }
 
   async publishLocalMedia(opts?: {
@@ -110,6 +123,17 @@ export class LiveKitCallSession implements CallSession {
       is_remote: false,
       media: mst,
     });
+
+    if (video) {
+      const videoPub = this.room.localParticipant.getTrackPublication("camera");
+      this.registerVideoTrack({
+        track_id: videoPub?.track?.sid ?? `trk_${this.participant_id}_video`,
+        participant_id: this.participant_id,
+        is_remote: false,
+        media: videoPub?.track?.mediaStreamTrack,
+      });
+    }
+
     return track;
   }
 
@@ -136,6 +160,23 @@ export class LiveKitCallSession implements CallSession {
     return track;
   }
 
+  private registerVideoTrack(input: {
+    track_id: string;
+    participant_id: string;
+    is_remote: boolean;
+    media?: MediaStreamTrack;
+  }): VideoTrackInfo {
+    const track: VideoTrackInfo = {
+      track_id: input.track_id,
+      participant_id: input.participant_id,
+      is_remote: input.is_remote,
+    };
+    this.videoTracks.set(track.track_id, track);
+    this.videoMedia.set(track.track_id, input.media ?? null);
+    for (const h of this.videoHandlers) h(track, input.media);
+    return track;
+  }
+
   listAudioTracks(): AudioTrack[] {
     return [...this.tracks.values()];
   }
@@ -148,7 +189,19 @@ export class LiveKitCallSession implements CallSession {
     return () => this.handlers.delete(handler);
   }
 
+  listVideoTracks(): VideoTrackInfo[] {
+    return [...this.videoTracks.values()];
+  }
+
+  onVideoTrack(handler: VideoTrackHandler): () => void {
+    this.videoHandlers.add(handler);
+    for (const t of this.videoTracks.values()) {
+      handler(t, this.videoMedia.get(t.track_id) ?? undefined);
+    }
+    return () => this.videoHandlers.delete(handler);
+  }
+
   getMediaStreamTrack(track_id: string): MediaStreamTrack | null {
-    return this.media.get(track_id) ?? null;
+    return this.media.get(track_id) ?? this.videoMedia.get(track_id) ?? null;
   }
 }

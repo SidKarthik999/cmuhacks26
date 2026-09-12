@@ -1,7 +1,10 @@
 import "./styles.css";
 import type { ParticipantRole, RoomMode, RoomState } from "../../shared/bindings/room_state.js";
 import type { AudioTrack } from "../../shared/bindings/audio_track.js";
+import type { CallSession } from "./call/CallSession.js";
 import { MockCallSession } from "./call/MockCallSession.js";
+import { LiveKitCallSession } from "./call/LiveKitCallSession.js";
+import { AudioTrackTap, float32ToBase64 } from "./audio/AudioTrackTap.js";
 
 const API =
   (typeof import.meta !== "undefined" &&
@@ -9,13 +12,26 @@ const API =
       ?.VITE_PLATFORM_API) ||
   "http://localhost:8787";
 
+/** Same-origin WebSocket base -- works whether the page loads from a plain
+ * LAN address or through an HTTPS tunnel, since it rides Vite's /ws proxy
+ * (or whatever proxies the deployed page) rather than hardcoding a host. */
+function wsBase(): string {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}`;
+}
+
 type Session = {
   room: RoomState;
   participant_id: string;
   display_name: string;
+  role: ParticipantRole;
   livekit: { token: string; url: string; mock: boolean };
-  call: MockCallSession;
-  tracks: AudioTrack[];
+  call: CallSession;
+  audioTap: AudioTrackTap | null;
+  ingestSocket: WebSocket | null;
+  feedSocket: WebSocket | null;
+  playCtx: AudioContext | null;
+  playCursor: Map<string, number>;
 };
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
@@ -160,35 +176,189 @@ async function enterRoom(
     body: JSON.stringify({ display_name, role }),
   });
 
-  const call = new MockCallSession({
-    room_id,
-    participant_id: joined.participant.participant_id,
-  });
+  const participant_id = joined.participant.participant_id;
+
+  const call: CallSession = joined.livekit.mock
+    ? new MockCallSession({ room_id, participant_id })
+    : new LiveKitCallSession({
+        room_id,
+        participant_id,
+        display_name,
+        url: joined.livekit.url,
+        token: joined.livekit.token,
+      });
+
   await call.connect();
-  const local = await call.publishLocalMedia();
-  // Simulate other participants' tracks from room roster for demo/dev.
-  for (const p of joined.room.participants) {
-    if (p.participant_id !== joined.participant.participant_id) {
-      call.simulateRemoteTrack(p.participant_id);
+  // Listeners (Performance mode) don't sing/perform -- no mic or camera to
+  // publish, they only receive the processed mix.
+  const local =
+    role === "listener" ? null : await call.publishLocalMedia({ audio: true, video: true });
+
+  if (call instanceof MockCallSession) {
+    // No real signaling in mock mode -- simulate other roster members'
+    // tracks so the UI has something to show without LiveKit configured.
+    for (const p of joined.room.participants) {
+      if (p.participant_id !== participant_id) {
+        call.simulateRemoteTrack(p.participant_id);
+      }
     }
   }
 
   session = {
     room: joined.room,
-    participant_id: joined.participant.participant_id,
+    participant_id,
     display_name: joined.participant.display_name,
+    role,
     livekit: joined.livekit,
     call,
-    tracks: call.listAudioTracks(),
+    audioTap: null,
+    ingestSocket: null,
+    feedSocket: null,
+    playCtx: null,
+    playCursor: new Map(),
   };
-  void local;
+
+  call.onAudioTrack(() => renderCall());
+  call.onVideoTrack(() => renderCall());
+
+  if (local) startAudioTap(session, local);
+  startFeedPlayback(session);
+
   renderCall();
+}
+
+/** Taps the local mic and forwards PCM to the real audio backend
+ * (backend/worker.py, via platform/api/server.ts's role=processor fan-out)
+ * as audio_chunk messages -- see docs/integration-contracts.md. */
+function startAudioTap(s: Session, local: AudioTrack): void {
+  const media = s.call.getMediaStreamTrack(local.track_id);
+  if (!media) return; // e.g. mock mode, or camera/mic permission denied
+
+  const ws = new WebSocket(
+    `${wsBase()}/ws/audio?room_id=${encodeURIComponent(s.room.room_id)}&role=ingest`,
+  );
+  s.ingestSocket = ws;
+
+  const tap = new AudioTrackTap(
+    { track_id: local.track_id, participant_id: s.participant_id, room_id: s.room.room_id },
+    (chunk) => {
+      if (ws.readyState !== WebSocket.OPEN) return;
+      ws.send(
+        JSON.stringify({
+          type: "audio_chunk",
+          room_id: chunk.room_id,
+          participant_id: chunk.participant_id,
+          track_id: chunk.track_id,
+          seq: chunk.seq,
+          timestamp_ms: chunk.timestamp_ms,
+          sample_rate: chunk.sample_rate,
+          channels: chunk.channels,
+          format: chunk.format,
+          pcm_base64: float32ToBase64(chunk.samples),
+        }),
+      );
+    },
+  );
+  s.audioTap = tap;
+  tap.start(media);
+}
+
+/** Subscribes to whichever processed feed(s) room.feeds assigns this
+ * participant (Practice's "enhanced", Performance listeners'
+ * "performance_mix") and plays them back. "raw_call" isn't included here --
+ * that's the normal LiveKit call audio, already playing via each remote
+ * participant's <video>/<audio> element. */
+function startFeedPlayback(s: Session): void {
+  const feeds = (s.room.feeds[s.participant_id] ?? []).filter((f) => f !== "raw_call");
+  if (feeds.length === 0 || s.feedSocket) return;
+
+  const AudioCtx =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  s.playCtx = s.playCtx ?? new AudioCtx();
+
+  const ws = new WebSocket(
+    `${wsBase()}/ws/audio?room_id=${encodeURIComponent(s.room.room_id)}&role=client&participant_id=${encodeURIComponent(s.participant_id)}`,
+  );
+  ws.onmessage = (ev) => {
+    let msg: Record<string, unknown>;
+    try {
+      msg = JSON.parse(String(ev.data));
+    } catch {
+      return;
+    }
+    if (msg.type === "feed_chunk" && typeof msg.feed === "string") {
+      playFeedChunk(s, msg.feed, msg);
+    }
+  };
+  s.feedSocket = ws;
+}
+
+function playFeedChunk(s: Session, feed: string, msg: Record<string, unknown>): void {
+  const ctx = s.playCtx;
+  if (!ctx) return;
+  const b64 = String(msg.pcm_base64 ?? "");
+  if (!b64) return;
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const samples = new Float32Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 4));
+  if (samples.length === 0) return;
+
+  const sampleRate = Number(msg.sample_rate ?? 48000);
+  const buffer = ctx.createBuffer(1, samples.length, sampleRate);
+  buffer.copyToChannel(samples, 0);
+
+  const src = ctx.createBufferSource();
+  src.buffer = buffer;
+  src.connect(ctx.destination);
+
+  const now = ctx.currentTime;
+  const cursor = s.playCursor.get(feed) ?? now;
+  const startAt = Math.max(now, cursor);
+  src.start(startAt);
+  s.playCursor.set(feed, startAt + buffer.duration);
 }
 
 function renderCall(): void {
   if (!session) return;
   const { room, participant_id, call, livekit } = session;
   const me = room.participants.find((p) => p.participant_id === participant_id);
+
+  const audioTracks = call.listAudioTracks();
+  const videoTracks = call.listVideoTracks();
+
+  const tiles = room.participants.map((p) => {
+    const isLocal = p.participant_id === participant_id;
+    const videoInfo = videoTracks.find((v) => v.participant_id === p.participant_id);
+    const audioInfo = audioTracks.find((a) => a.participant_id === p.participant_id);
+    const videoMedia = videoInfo ? call.getMediaStreamTrack(videoInfo.track_id) : null;
+    const audioMedia = audioInfo ? call.getMediaStreamTrack(audioInfo.track_id) : null;
+
+    const videoEl = el("video", {
+      autoplay: "",
+      playsinline: "",
+      className: "tile-video",
+      ...(isLocal ? { muted: "" } : {}),
+    }) as HTMLVideoElement;
+    const mediaTracks: MediaStreamTrack[] = [];
+    if (videoMedia) mediaTracks.push(videoMedia);
+    // Never attach our own mic to our own tile -- would echo.
+    if (audioMedia && !isLocal) mediaTracks.push(audioMedia);
+    if (mediaTracks.length) videoEl.srcObject = new MediaStream(mediaTracks);
+
+    return el("div", { className: "tile" }, [
+      videoEl,
+      el("div", {}, [
+        el("strong", {}, [p.display_name]),
+        " ",
+        el("span", { className: "badge" }, [p.role]),
+      ]),
+      el("div", { className: "feeds" }, [
+        `Feeds: ${(room.feeds[p.participant_id] ?? []).join(", ") || "—"}`,
+      ]),
+    ]);
+  });
 
   app.replaceChildren(
     el("section", { className: "call" }, [
@@ -200,7 +370,7 @@ function renderCall(): void {
           ]),
           el("div", { className: "meta" }, [
             livekit.mock
-              ? "LiveKit credentials not set — using mock SFU session (per-track audio still exposed)."
+              ? "LiveKit credentials not set — using mock SFU session (no real audio/video)."
               : `LiveKit: ${livekit.url}`,
           ]),
         ]),
@@ -210,23 +380,10 @@ function renderCall(): void {
           onClick: () => void leave(),
         }, ["Leave"]),
       ]),
-      el("div", { className: "grid" }, [
-        ...room.participants.map((p) =>
-          el("div", { className: "tile" }, [
-            el("div", {}, [
-              el("strong", {}, [p.display_name]),
-              " ",
-              el("span", { className: "badge" }, [p.role]),
-            ]),
-            el("div", { className: "feeds" }, [
-              `Feeds: ${(room.feeds[p.participant_id] ?? []).join(", ") || "—"}`,
-            ]),
-          ]),
-        ),
-      ]),
+      el("div", { className: "grid" }, tiles),
       el("div", { className: "tracks" }, [
         el("div", {}, ["Addressable audio tracks (Task 1 output):"]),
-        ...call.listAudioTracks().map((t) =>
+        ...audioTracks.map((t) =>
           el("div", {}, [
             el("code", {}, [
               `${t.track_id} ← ${t.participant_id} (${t.is_remote ? "remote" : "local"}, ${t.sample_rate}Hz ${t.format})`,
@@ -245,7 +402,10 @@ function renderCall(): void {
 
 async function leave(): Promise<void> {
   if (!session) return;
-  const { room, participant_id, call } = session;
+  const { room, participant_id, call, audioTap, ingestSocket, feedSocket } = session;
+  audioTap?.stop();
+  ingestSocket?.close();
+  feedSocket?.close();
   await call.disconnect();
   try {
     await api(
@@ -261,21 +421,23 @@ async function leave(): Promise<void> {
 
 renderLanding();
 
-// Poll room state while in call so joins from other tabs appear.
+// Poll room state while in call so joins from other tabs/devices appear.
 setInterval(() => {
   if (!session) return;
   void api<RoomState>(`/rooms/${encodeURIComponent(session.room.room_id)}`)
     .then((room) => {
       if (!session) return;
       session.room = room;
-      for (const p of room.participants) {
-        if (
-          p.participant_id !== session.participant_id &&
-          !session.call
-            .listAudioTracks()
-            .some((t) => t.participant_id === p.participant_id)
-        ) {
-          session.call.simulateRemoteTrack(p.participant_id);
+      if (session.call instanceof MockCallSession) {
+        for (const p of room.participants) {
+          if (
+            p.participant_id !== session.participant_id &&
+            !session.call
+              .listAudioTracks()
+              .some((t) => t.participant_id === p.participant_id)
+          ) {
+            session.call.simulateRemoteTrack(p.participant_id);
+          }
         }
       }
       renderCall();
