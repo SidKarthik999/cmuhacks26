@@ -42,6 +42,33 @@ Storage root layout: `<root>/signals.db` (SQLite metadata) +
 `<root>/blobs/<signal_id>.<format>` (audio blobs). Both backend
 processes should point at the same root if they need to share a store.
 
+Task 7 (Person B) does **not** overwrite that blob. After
+`clean_signal_in_store`, `metadata.cleaned = true` and
+`metadata.cleaned_audio_ref` points at `blobs/<id>.cleaned.wav`.
+
+## singing_event.schema.json (Task 2)
+
+- **Owner:** Person B (`audio-intelligence/detection/`)
+- **Consumers:** Person C (Task 3 uses `singing_started` / `singing_stopped`
+  to open and close a Signal)
+- **Python binding:** `audio-intelligence/schema.py` (`validate_singing_event`)
+- **Mock fixture:** `shared/mocks/mock_singing_events.json`,
+  `shared/mocks/mock_singing_events.py`
+- **Live API:** `SingingDetector.push(pcm, timestamp_ms) -> list[event]`
+  and `detect_buffer(pcm, sample_rate, participant_id=...)`.
+- **Cadence:** `kind=sample` about every 80ms; edge events fire after ~160ms
+  of sustained singing (onset within ~1s) and ~400ms of non-singing.
+
+## pitch_contour.schema.json (Task 8)
+
+- **Owner:** Person B (`audio-intelligence/notes/`)
+- **Consumers:** Person C Task 5 (pitch deviation). **Stable signature:**
+  `extract_pitch_contour(audio, sample_rate=None) -> [{time_ms, pitch_hz, confidence}]`
+- **Mock fixture:** `shared/mocks/mock_pitch_contour.json`,
+  `shared/mocks/mock_pitch_contour.py`
+- Discrete notes (`note_event.schema.json`) are produced by `signal_to_notes`
+  from the same contour.
+
 ## alignment_result.schema.json (Task 4)
 
 - **Owner:** Person C (`signal-processing/sync/`)
@@ -95,7 +122,11 @@ alignments, not as a statistical guarantee.
 ## Pending schemas (stubbed, not yet implemented)
 
 The remaining schemas listed in Part 4's repo layout
-(`singing_event.schema.json` — Person B, `pitch_contour.schema.json` —
-Person B, `comparison_result.schema.json` — Person C, Task 5,
+(`comparison_result.schema.json` — Person C, Task 5,
 `room_state.schema.json` and `audio_track.schema.json` — Person A) are not
 defined yet. Add them here as their owning tasks land.
+
+Person B assumes float32 mono PCM chunks keyed by `participant_id` +
+`room_id` (`shared/mocks/mock_audio_track.py`) until Person A lands
+`audio_track.schema.json`. Practice mode delivers the enhanced feed via
+`shared/mocks/mock_routing.py` (`EnhancedFeedRouter`) until Task 9 lands.

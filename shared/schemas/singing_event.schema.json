@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cmuhacks26/shared/schemas/singing_event.schema.json",
+  "title": "SingingEvent",
+  "description": "Per-participant singing detection sample or edge event (Task 2). Owned by Person B. Person C (Task 3) consumes these to open/close Signals.",
+  "type": "object",
+  "version": 1,
+  "required": [
+    "participant_id",
+    "timestamp_ms",
+    "is_singing",
+    "confidence",
+    "kind"
+  ],
+  "properties": {
+    "participant_id": {
+      "type": "string",
+      "description": "Who this classification belongs to (Task 1 audio track attribution)."
+    },
+    "room_id": {
+      "type": ["string", "null"],
+      "description": "Room/session, if known."
+    },
+    "timestamp_ms": {
+      "type": "number",
+      "description": "Clock aligned with the audio track (room-relative or epoch ms)."
+    },
+    "is_singing": {
+      "type": "boolean",
+      "description": "True when the detector believes the participant is singing at timestamp_ms."
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Detector confidence in the is_singing decision."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["sample", "singing_started", "singing_stopped"],
+      "description": "sample = periodic poll (100–250ms). singing_started / singing_stopped are edge events so Task 3 does not have to poll."
+    },
+    "harmonicity": {
+      "type": ["number", "null"],
+      "description": "Optional diagnostic: YIN/harmonicity score in [0, 1]."
+    },
+    "pitch_hz": {
+      "type": ["number", "null"],
+      "description": "Optional diagnostic: estimated F0 at this frame, or null if unvoiced."
+    }
+  },
+  "additionalProperties": false
+}
