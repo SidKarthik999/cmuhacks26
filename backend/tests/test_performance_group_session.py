@@ -86,3 +86,42 @@ def test_emitted_audio_is_not_silence():
     assert emitted
     full = np.concatenate(emitted)
     assert np.max(np.abs(full)) > 0.0
+
+
+def test_chunk_boundaries_are_smooth_not_clicky():
+    """Regression test for the click artifact described in
+    docs/integration-contracts.md: each committed chunk comes from an
+    independent re-render of the pairwise-composed mix, so consecutive
+    chunks' waveform values weren't guaranteed to connect -- audible as a
+    click at every chunk boundary. The boundary jump should be the same
+    order of magnitude as jumps within a chunk, not roughly 10x larger
+    (observed before the crossfade fix)."""
+    lead = _melody([261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25])
+    other = np.concatenate(
+        [np.zeros(int(SAMPLE_RATE * 0.35), dtype=np.float32), lead]
+    )
+    session = PerformanceGroupSession(room_id="r_test3", sample_rate=SAMPLE_RATE)
+    chunk = SAMPLE_RATE // 2
+
+    emitted = []
+    for start in range(0, max(len(lead), len(other)), chunk):
+        for pid, buf in (("lead", lead), ("other", other)):
+            piece = buf[start : start + chunk]
+            if piece.size == 0:
+                continue
+            out = session.push(pid, piece)
+            if out is not None and out.size:
+                emitted.append(out)
+
+    assert len(emitted) >= 3, "need several chunks to check boundaries"
+
+    interior_deltas = np.concatenate([np.abs(np.diff(p)) for p in emitted if p.size > 1])
+    boundary_jumps = np.array(
+        [abs(emitted[i][-1] - emitted[i + 1][0]) for i in range(len(emitted) - 1)]
+    )
+    # Median, not max: the very first crossfade-eligible boundary can still
+    # be a hard cut (no held-back audio exists yet for the first chunk),
+    # which is expected and not what this test targets.
+    ratio = np.median(boundary_jumps) / np.median(interior_deltas)
+    # Observed ~11.1x before the crossfade fix, ~1.3x after.
+    assert ratio < 3.0

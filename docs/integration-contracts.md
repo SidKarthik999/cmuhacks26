@@ -125,6 +125,28 @@ naive linear interpolation on raw waveform samples (`np.interp` in
 phase vocoder or WSOLA — this can still introduce its own small
 artifacts independent of the chunking fix above.
 
+**Fixed: click/"percussion" artifact at chunk boundaries.** The duration
+fix above ensured chunks don't overlap or gap in time, but each chunk still
+came from an *independent* re-render (fresh DTW warp + resample) of the
+current window — nothing enforced that the waveform value at the end of
+chunk N matched the start of chunk N+1. Measured: the sample-to-sample jump
+at a chunk boundary was ~10-11x larger than typical jumps *within* a chunk,
+a real discontinuity, not a rounding artifact — heard as a periodic
+click/tick (i.e. "percussion") at the chunk-emission cadence.
+
+Fixed by holding back a short (`MIX_CROSSFADE_MS = 15`) tail of each
+render's newly-stable audio *before* emitting it, then on the next call
+blending that held-back, never-before-heard region against the new
+render's own estimate of that same absolute time range, and only then
+committing it. An earlier attempt at this fix blended against
+*already-emitted* audio instead — that doesn't remove the discontinuity,
+it just relocates it to right before the blended region (confirmed by the
+boundary-jump ratio barely moving, 10.7x → 7.7x, with that approach).
+Holding back before emitting is what actually closes the gap: 10.7x → 1.2x
+(Practice), 11.1x → 1.3x (Performance). See
+`modes/practice/tests/test_practice.py::test_dual_sync_chunk_boundaries_are_smooth_not_clicky`
+and `backend/tests/test_performance_group_session.py::test_chunk_boundaries_are_smooth_not_clicky`.
+
 ### Task 9 feed names
 
 | Feed | Who typically receives it |

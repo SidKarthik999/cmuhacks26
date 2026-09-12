@@ -38,6 +38,15 @@ except ImportError:  # pragma: no cover
     StreamingAligner = None  # type: ignore
     render_aligned_playback = None  # type: ignore
 
+# Each committed mix chunk comes from an independent re-render of the
+# aligner's current window (a fresh DTW warp path + resample), not a
+# continuation of the previous chunk's synthesis -- so the waveform value
+# at the end of one chunk and the start of the next aren't guaranteed to
+# match, audible as a click/tick at every chunk boundary (see
+# docs/integration-contracts.md). Crossfading a short overlap between
+# consecutive chunks smooths that seam.
+MIX_CROSSFADE_MS = 15.0
+
 
 @dataclass
 class ParticipantStream:
@@ -100,6 +109,14 @@ class PracticeSession:
         # up to which the dual-sync mix has already been emitted. See
         # _mix_with_task4.
         self._mix_emitted_abs = 0
+        # Up to MIX_CROSSFADE_MS of audio that's been rendered but
+        # deliberately NOT yet emitted -- held back so the next call can
+        # blend its own (more current) estimate of that exact same
+        # never-before-heard time range in before finally committing it,
+        # rather than hard-cutting between two independently-rendered
+        # chunks. None whenever there's no valid held-back audio to blend
+        # (first chunk, or right after a resync jump).
+        self._mix_prev_tail: Optional[np.ndarray] = None
         self.streams = {
             pid: ParticipantStream(
                 participant_id=pid,
@@ -255,20 +272,49 @@ class PracticeSession:
         # be revised once more audio arrives, so don't commit it yet.
         window_start_abs = a.aligner_total_fed - a.aligner_window_audio.size
         margin_samples = self._aligner.hop_length * 2
-        end_local = pcm.size - margin_samples
+        stable_end_local = pcm.size - margin_samples
 
         if self._mix_emitted_abs < window_start_abs:
             # Fell behind further than the window covers (e.g. a long gap)
             # -- resync rather than try to backfill audio no longer in the
-            # window.
+            # window. No valid continuity to crossfade against afterward.
             self._mix_emitted_abs = window_start_abs
+            self._mix_prev_tail = None
 
         start_local = self._mix_emitted_abs - window_start_abs
-        if end_local <= start_local:
+        if stable_end_local <= start_local:
             return None  # nothing new and stable enough to emit yet
 
-        new_output = pcm[start_local:end_local].astype(np.float32)
-        self._mix_emitted_abs = window_start_abs + end_local
+        # Crossfade: `self._mix_prev_tail`, if present, is audio that was
+        # held back last call rather than emitted -- i.e. it covers
+        # [start_local, start_local + fade_n) in THIS call's window, a time
+        # range nobody has heard yet. Blend it with this call's (more
+        # informed) estimate of that same range instead of hard-cutting to
+        # either one, then emit the blend followed by genuinely new
+        # content. (Blending against already-emitted audio, as an earlier
+        # version of this fix did, doesn't remove the discontinuity -- it
+        # just relocates it to before the blended region; see
+        # docs/integration-contracts.md.)
+        crossfade_samples = int(self.sample_rate * MIX_CROSSFADE_MS / 1000)
+        if self._mix_prev_tail is not None and self._mix_prev_tail.size:
+            fade_n = min(self._mix_prev_tail.size, stable_end_local - start_local)
+            current_estimate = pcm[start_local : start_local + fade_n].astype(np.float32)
+            fade_out = np.linspace(1.0, 0.0, fade_n, dtype=np.float32)
+            fade_in = 1.0 - fade_out
+            blended = self._mix_prev_tail[:fade_n] * fade_out + current_estimate * fade_in
+        else:
+            fade_n = 0
+            blended = np.zeros(0, dtype=np.float32)
+
+        remainder_start = start_local + fade_n
+        # Hold back a fresh crossfade_samples of newly-stable audio for the
+        # *next* call to blend against, rather than emitting it now.
+        commit_end_local = max(remainder_start, stable_end_local - crossfade_samples)
+        new_remainder = pcm[remainder_start:commit_end_local].astype(np.float32)
+        new_output = np.concatenate([blended, new_remainder])
+
+        self._mix_prev_tail = pcm[commit_end_local:stable_end_local].astype(np.float32).copy()
+        self._mix_emitted_abs = window_start_abs + commit_end_local
         return new_output if new_output.size else None
 
     def _close_signal(self, st: ParticipantStream, stop_event: Dict[str, Any]) -> None:

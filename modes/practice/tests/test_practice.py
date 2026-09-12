@@ -113,3 +113,38 @@ def test_emitted_audio_duration_does_not_grossly_exceed_wall_clock_duration():
     # docs/integration-contracts.md), so this range is a meaningful guard,
     # not just a loose upper bound.
     assert 0.5 <= ratio <= 1.2
+
+
+def test_dual_sync_chunk_boundaries_are_smooth_not_clicky():
+    """Regression test for the click/"percussion" artifact described in
+    docs/integration-contracts.md: each committed dual-sync chunk comes
+    from an independent re-render of the aligner's window, so consecutive
+    chunks' waveform values weren't guaranteed to connect -- audible as a
+    click at every chunk boundary. Checks that the sample-to-sample jump
+    AT each chunk boundary is the same order of magnitude as jumps WITHIN
+    a chunk, not roughly 10x larger (observed before the crossfade fix)."""
+    sr = 16000
+    pcm_alice = singing_scale(sample_rate=sr, note_ms=280)
+    pcm_bob = np.concatenate([np.zeros(int(sr * 0.4), dtype=np.float32), pcm_alice.copy()])
+    session = PracticeSession("room_p", ["alice", "bob"], sample_rate=sr)
+
+    mix_pieces = []
+    for (ca, ta), (cb, tb) in zip(_chunks(pcm_alice, sr), _chunks(pcm_bob, sr)):
+        session.push("alice", ca, ta)
+        result = session.push("bob", cb, tb)
+        frame = result.get("feed")
+        if frame is not None and frame.pcm.size:
+            mix_pieces.append(frame.pcm.copy())
+
+    assert len(mix_pieces) >= 3, "need several dual-sync chunks to check boundaries"
+
+    interior_deltas = np.concatenate(
+        [np.abs(np.diff(p)) for p in mix_pieces if p.size > 1]
+    )
+    boundary_jumps = np.array(
+        [abs(mix_pieces[i][-1] - mix_pieces[i + 1][0]) for i in range(len(mix_pieces) - 1)]
+    )
+    ratio = np.median(boundary_jumps) / np.median(interior_deltas)
+    # Observed ~10.7x before the crossfade fix, ~1.2x after. A generous
+    # ceiling well below the old value still catches a regression.
+    assert ratio < 3.0

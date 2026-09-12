@@ -45,6 +45,7 @@ from sync import align_audio, render_aligned_playback  # noqa: E402
 from practice.pipeline import PracticeSession  # noqa: E402
 
 WINDOW_SECONDS = 3.0
+MIX_CROSSFADE_MS = 15.0
 
 
 def decode_audio_chunk(msg: Dict[str, Any]) -> np.ndarray:
@@ -98,6 +99,12 @@ class PerformanceGroupSession:
     reference_id: Optional[str] = None
     _ref_total_fed: int = field(default=0, repr=False)
     _emitted_abs: int = field(default=0, repr=False)
+    # Up to MIX_CROSSFADE_MS of audio that's been rendered but deliberately
+    # NOT yet emitted -- held back so the next call can blend its own more
+    # current estimate of that exact same never-before-heard time range in
+    # before finally committing it, rather than hard-cutting between two
+    # independently-rendered chunks (see docs/integration-contracts.md).
+    _prev_tail: Optional[np.ndarray] = field(default=None, repr=False)
 
     def push(self, participant_id: str, pcm: np.ndarray) -> Optional[np.ndarray]:
         cleaner = self.cleaners.setdefault(
@@ -159,17 +166,43 @@ class PerformanceGroupSession:
         # + mix_len) on the reference's cumulative timeline.
         window_start_abs = self._ref_total_fed - ref_buf.size
         margin_samples = int(self.sample_rate * 0.2)  # ~200ms still-revisable edge
-        end_local = mix_len - margin_samples
+        stable_end_local = mix_len - margin_samples
 
         if self._emitted_abs < window_start_abs:
             self._emitted_abs = window_start_abs  # fell behind the window; resync
+            self._prev_tail = None  # no valid held-back audio to crossfade
 
         start_local = self._emitted_abs - window_start_abs
-        if end_local <= start_local:
+        if stable_end_local <= start_local:
             return None  # nothing new and stable enough to emit yet
 
-        new_output = mix[start_local:end_local]
-        self._emitted_abs = window_start_abs + end_local
+        # Crossfade: `self._prev_tail`, if present, is audio held back last
+        # call rather than emitted -- covering [start_local, start_local +
+        # fade_n) in THIS call's window, a time range nobody has heard yet.
+        # Blend it with this call's own (more current) estimate of that
+        # same range, then emit the blend followed by genuinely new
+        # content. Blending against already-emitted audio instead (an
+        # earlier version of this fix) doesn't remove the discontinuity --
+        # it only relocates it to just before the blended region; see
+        # docs/integration-contracts.md.
+        crossfade_samples = int(self.sample_rate * MIX_CROSSFADE_MS / 1000)
+        if self._prev_tail is not None and self._prev_tail.size:
+            fade_n = min(self._prev_tail.size, stable_end_local - start_local)
+            current_estimate = mix[start_local : start_local + fade_n]
+            fade_out = np.linspace(1.0, 0.0, fade_n, dtype=np.float32)
+            fade_in = 1.0 - fade_out
+            blended = self._prev_tail[:fade_n] * fade_out + current_estimate * fade_in
+        else:
+            fade_n = 0
+            blended = np.zeros(0, dtype=np.float32)
+
+        remainder_start = start_local + fade_n
+        commit_end_local = max(remainder_start, stable_end_local - crossfade_samples)
+        new_remainder = mix[remainder_start:commit_end_local]
+        new_output = np.concatenate([blended, new_remainder])
+
+        self._prev_tail = mix[commit_end_local:stable_end_local].copy()
+        self._emitted_abs = window_start_abs + commit_end_local
         return new_output if new_output.size else None
 
 
