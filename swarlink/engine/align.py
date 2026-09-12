@@ -208,24 +208,43 @@ class Alignment:
         )
 
     def drift_series(self, points: int = 16, span_ms: Optional[float] = None) -> List[dict]:
-        """Residual timing error sampled across the take.
+        """How far apart the two takes would drift with no correction.
 
-        Drift is what the duet UI plots. The constant part is just "one singer
-        came in late", which the offset already reports, so it is removed here:
-        what is left is the part a fixed delay cannot fix.
+        Deliberately computed from the global offset and tempo rather than
+        from the warp knots. This series answers a question about the
+        performance -- "you were eight percent quick, so by the last bar you
+        were a quarter second ahead" -- and the answer should not change
+        because the aligner added a bend somewhere. What the aligner actually
+        did is a different question, and `warp_series` answers that one.
+
+        The constant part is removed, because "one singer came in late" is
+        already reported as the entry offset; what is left is the part a fixed
+        delay cannot fix.
         """
         if span_ms is None:
             span_ms = self.span_ms or 4000.0
         grid = np.linspace(0.0, max(span_ms, 1.0), points)
-        mapped = self.inverse_ms(grid) - grid
+        mapped = grid / max(self.tempo_ratio, 1e-6) - grid
         mapped = mapped - mapped[0]
         return [
             {"t_ms": round(float(t), 1), "drift_ms": round(float(m), 2)}
             for t, m in zip(grid, mapped)
         ]
 
+    def warp_series(self, points: int = 16, span_ms: Optional[float] = None) -> List[dict]:
+        """What the aligner actually did, moment by moment, in milliseconds."""
+        if span_ms is None:
+            span_ms = self.span_ms or 4000.0
+        grid = np.linspace(0.0, max(span_ms, 1.0), points)
+        mapped = self.inverse_ms(grid) - grid
+        return [
+            {"t_ms": round(float(t), 1), "shift_ms": round(float(m), 2)}
+            for t, m in zip(grid, mapped)
+        ]
+
 
 ONSET_WEIGHT = 0.6
+MEL_LEVEL_WEIGHT = float(__import__("os").environ.get("SWARLINK_LVLW", "0.35"))
 
 
 def _features(x: np.ndarray, sr: int, feature: str) -> np.ndarray:
@@ -258,7 +277,28 @@ def _features(x: np.ndarray, sr: int, feature: str) -> np.ndarray:
         smooth = np.convolve(env, np.ones(5) / 5.0, mode="same")
         feats = np.stack([env, smooth], axis=1)
     elif feature == "mel":
-        feats = dsp.melspectrogram(x, sr=sr, n_fft=1024, hop=hop, n_mels=24)
+        mel = dsp.melspectrogram(x, sr=sr, n_fft=1024, hop=hop, n_mels=24)
+        # Split each frame into spectral *shape* and overall *level*, and give
+        # the level one downweighted channel instead of letting it sit inside
+        # every band.
+        #
+        # Scaling a frame's energy by k adds log(k) to all 24 bands, so a
+        # level change moves a log-mel vector along the all-ones direction --
+        # and that survives L2 normalisation, so a distance between
+        # normalised frames reads a microphone swell as a change of timbre.
+        # The warp then bends to correct the swell: 6 dB of drift pulled the
+        # path 115 ms off course. Removing the mean outright fixes that but
+        # throws away a cue the hardest cases need, where an alto reference
+        # and a bass take share so little spectral shape that their loudness
+        # contour is the most reliable thing they have in common. Keeping it
+        # as one channel at `MEL_LEVEL_WEIGHT` preserves the cue without
+        # letting it dominate 24 others.
+        level = mel.mean(axis=1)
+        shape = mel - level[:, None]
+        shape /= np.maximum(np.linalg.norm(shape, axis=1, keepdims=True), 1e-8)
+        spread = float(np.std(level)) or 1.0
+        chan = MEL_LEVEL_WEIGHT * (level - float(np.median(level))) / spread
+        feats = np.concatenate([shape, chan[:, None]], axis=1)
     else:
         chroma = dsp.chromagram(x, sr=sr, n_fft=2048, hop=hop)
         if feature == "chroma":
@@ -358,10 +398,29 @@ def align(
     ref: np.ndarray,
     other: np.ndarray,
     sr: int = 22050,
-    feature: str = "mel",
+    feature: str = "auto",
     band_ms: float = 260.0,
 ) -> Alignment:
-    """Full alignment: global (offset, tempo) then a banded DTW refinement."""
+    """Full alignment: global (offset, tempo) then a banded DTW refinement.
+
+    With `feature="auto"` the choice is made by measurement rather than by
+    assumption: the DTW is run against each candidate representation and the
+    one whose path is actually cheaper wins. This matters because no single
+    representation covers the cases the product has. Mel spectra are sharpest
+    for a student of the teacher's own voice type; chroma is octave-invariant
+    and is the only thing that works when a bass sings back an alto's line
+    two octaves down, where the two takes share almost no mel content. Picking
+    per pair costs one extra pass and removes a guess.
+    """
+    if feature == "auto":
+        best: Optional[Alignment] = None
+        for candidate in ("mel", "hybrid"):
+            got = align(ref, other, sr=sr, feature=candidate, band_ms=band_ms)
+            got.method = f"{got.method}:{candidate}"
+            if best is None or got.confidence > best.confidence:
+                best = got
+        return best if best is not None else Alignment(0.0, 1.0, 0.0, "none")
+
     offset_ms, tempo, conf = scan_offset_tempo(ref, other, sr=sr)
 
     fa = _features(ref, sr, feature)
@@ -398,9 +457,11 @@ def align_and_warp(
     ref: np.ndarray,
     other: np.ndarray,
     sr: int = 22050,
-    feature: str = "mel",
+    feature: str = "auto",
     passes: int = 5,
-    tol_ms: float = 15.0,
+    tol_ms: float = 25.0,
+    min_gain_ms: float = 5.0,
+    min_gain_frac: float = 0.15,
 ) -> Tuple[np.ndarray, Alignment]:
     """Align, then warp `other` onto `ref`'s clock. The pair most callers want.
 
@@ -421,9 +482,18 @@ def align_and_warp(
     best_err = _worst_window_ms(ref, best, sr=sr)
 
     for _ in range(max(passes - 1, 0)):
-        # Below tolerance there is nothing left to measure: the onset hop is
-        # 5 ms and the windows are coarse, so another pass would be fitting
-        # measurement noise, and fitting noise costs real audio quality.
+        # Refinement is not free, and the cost is paid in pitch. Every extra
+        # bend in the warp path is rendered by the phase vocoder, which
+        # reconstructs pitch to within a few cents rather than exactly, so
+        # chasing a timing error that was never there measurably detunes the
+        # take: a student whose only fault was an uneven microphone level
+        # once lost twenty cents of accuracy to two refinement passes that
+        # were correcting noise.
+        #
+        # So two gates. Below `tol_ms` -- inside the window where our own
+        # metric anchors say two voices are heard as locked together -- there
+        # is nothing worth correcting. And a pass must earn its place by a
+        # real margin, not by a millisecond.
         if best_err <= tol_ms:
             break
         stepped = _correct_from_residual(ref, best, best_al, sr=sr)
@@ -431,7 +501,8 @@ def align_and_warp(
             break
         candidate = warp_to_reference(other, stepped, ref.size, sr=sr)
         err = _worst_window_ms(ref, candidate, sr=sr)
-        if err >= best_err - 1e-6:
+        needed = max(min_gain_ms, min_gain_frac * best_err)
+        if err > best_err - needed:
             break
         best, best_al, best_err = candidate, stepped, err
     return best, best_al
@@ -490,6 +561,13 @@ def _correct_from_residual(
 
     kx = alignment.knot_ref_ms
     delta = np.interp(kx, cx, cy, left=cy[0], right=cy[-1])
+    # Smooth the correction. The windows are 200 ms apart and each one's lag
+    # is quantised to a 5 ms onset frame, so the raw curve can kink sharply
+    # between neighbours; applying those kinks puts rate steps into the warp
+    # that are heard as wobble and measured as detuning.
+    if delta.size >= 5:
+        kernel = np.ones(5) / 5.0
+        delta = np.convolve(np.pad(delta, 2, mode="edge"), kernel, mode="valid")
     src = np.maximum.accumulate(alignment.knot_src_ms + delta)
     return Alignment(
         offset_ms=float(src[0] - kx[0]),
@@ -503,24 +581,47 @@ def _correct_from_residual(
     )
 
 
+WINDOW_MIN_CONF = 0.35
+
+
+def window_residuals(
+    ref: np.ndarray, other: np.ndarray, sr: int = 22050, win_ms: float = 800.0
+) -> List[Tuple[float, float, float]]:
+    """Local timing error in overlapping windows: (centre_ms, lag_ms, confidence)."""
+    win = int(win_ms * sr / 1000.0)
+    if ref.size < win:
+        d, c = estimate_offset_ms(ref, other, sr=sr, max_offset_ms=300.0)
+        return [(ref.size * 500.0 / sr, d, c)]
+    out = []
+    step = max(win // 2, 1)
+    for a in range(0, ref.size - win, step):
+        d, c = estimate_offset_ms(
+            ref[a : a + win], other[a : a + win], sr=sr, max_offset_ms=300.0
+        )
+        out.append(((a + win / 2.0) * 1000.0 / sr, d, c))
+    return out
+
+
 def _worst_window_ms(
     ref: np.ndarray, other: np.ndarray, sr: int = 22050, win_ms: float = 800.0
 ) -> float:
-    """Largest local timing error, which is what an ensemble actually notices.
+    """Largest *credible* local timing error, which is what an ensemble notices.
 
-    A global offset can read as zero while bar three is a beat out, so the
-    refinement loop is steered by the worst window rather than the mean.
+    A global offset can read as zero while bar three is a beat out, so this
+    is the worst window rather than the mean. But windows are only 0.8 s
+    long, and one that happens to contain a single soft attack produces a
+    broad, ambiguous correlation peak whose position is mostly noise.
+    Including those made this estimator jitter by a couple of frames on
+    perfectly aligned audio, which was enough to send the refinement loop
+    chasing corrections for errors that did not exist -- and every
+    unnecessary correction is another vocoder pass, paid for in pitch
+    accuracy. Windows that cannot support a measurement are skipped instead.
     """
-    win = int(win_ms * sr / 1000.0)
-    if ref.size < win:
-        return abs(estimate_offset_ms(ref, other, sr=sr, max_offset_ms=300.0)[0])
-    worst = 0.0
-    for a in range(0, ref.size - win, max(win // 2, 1)):
-        d, _ = estimate_offset_ms(
-            ref[a : a + win], other[a : a + win], sr=sr, max_offset_ms=300.0
-        )
-        worst = max(worst, abs(d))
-    return worst
+    rows = window_residuals(ref, other, sr=sr, win_ms=win_ms)
+    credible = [abs(d) for _, d, c in rows if c >= WINDOW_MIN_CONF]
+    if credible:
+        return max(credible)
+    return max((abs(d) for _, d, _ in rows), default=0.0)
 
 
 WARP_N_FFT = 1024

@@ -170,10 +170,58 @@ def mel_filterbank(
     return fb
 
 
+def _peak_normalise(x: np.ndarray) -> np.ndarray:
+    """Scale a take to unit peak, for analysis that should ignore level.
+
+    The `+ eps` inside a log spectrogram is what makes this necessary. It is
+    there to keep silence finite, but it also fixes an absolute reference
+    level, so the same performance recorded 18 dB quieter produces a
+    different log-mel shape and a different onset envelope -- and then a
+    different alignment, and then a different pitch score. Normalising first
+    makes every shape descriptor in this module gain-invariant, which is what
+    anyone would assume they already were.
+    """
+    peak = float(np.max(np.abs(x))) if x.size else 0.0
+    return x / peak if peak > 0 else x
+
+
+def agc(x: np.ndarray, sr: int = 22050, window_ms: float = 400.0, floor: float = 0.05) -> np.ndarray:
+    """Flatten slow level drift, leaving spectral shape alone.
+
+    Alignment features need to describe *what* is being sung, not how loud.
+    Peak-normalising the whole take is not enough: a singer who swells and
+    fades within the phrase still moves every log-magnitude band up and down
+    together, and a distance measure between normalised log-mel frames reads
+    that common shift as a change of timbre. The warp then bends to correct a
+    microphone level, and once the audio has been resampled along that bent
+    path it is genuinely detuned.
+
+    Dividing by a slowly-smoothed envelope removes drift on the scale of a
+    phrase while leaving note-to-note attacks, and therefore onsets, intact.
+    The floor keeps silence from being amplified into noise.
+    """
+    if x.size == 0:
+        return np.asarray(x, dtype=np.float32)
+    win = max(int(sr * window_ms / 1000.0) | 1, 3)
+    power = np.convolve(np.asarray(x, dtype=np.float64) ** 2, np.ones(win) / win, mode="same")
+    env = np.sqrt(np.maximum(power, 0.0))
+    ref = float(np.max(env))
+    if ref <= 0:
+        return np.asarray(x, dtype=np.float32)
+    return (x / np.maximum(env, floor * ref)).astype(np.float32)
+
+
 def melspectrogram(
-    x: np.ndarray, sr: int = 22050, n_fft: int = 1024, hop: int = 256, n_mels: int = 40
+    x: np.ndarray,
+    sr: int = 22050,
+    n_fft: int = 1024,
+    hop: int = 256,
+    n_mels: int = 40,
+    normalise: bool = True,
 ) -> np.ndarray:
     """Log-mel spectrogram, shape (frames, n_mels)."""
+    if normalise:
+        x = _peak_normalise(x)
     mag = np.abs(stft(x, n_fft, hop)) ** 2
     fb = mel_filterbank(sr, n_fft, n_mels)
     return np.log(mag @ fb.T + 1e-8)
@@ -209,7 +257,7 @@ def onset_envelope(
     """
     hop = max(int(sr * hop_ms / 1000.0), 1)
     n_fft = max(int(2 ** np.ceil(np.log2(hop * 8))), 256)
-    mag = np.abs(stft(x, n_fft, hop))
+    mag = np.abs(stft(_peak_normalise(x), n_fft, hop))
     fb = mel_filterbank(sr, n_fft, 32)
     mel = np.log(mag ** 2 @ fb.T + 1e-8)
     flux = np.diff(mel, axis=0, prepend=mel[:1])

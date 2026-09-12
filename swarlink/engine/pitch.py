@@ -124,7 +124,15 @@ def track(
     if x.size < frame:
         return Contour(np.zeros(0), np.zeros(0), np.zeros(0), np.zeros(0), sr)
 
-    frames = _frame(x, frame, hop)
+    # Normalise before analysis. Pitch does not depend on level, but a
+    # voicing decision made against an absolute dBFS floor does: the same
+    # singer recorded 18 dB quieter would have their soft notes declared
+    # unvoiced and dropped from the score. Framing on a peak-normalised copy
+    # makes the whole tracker gain-invariant, and the levels reported back
+    # come from the original signal.
+    peak = float(np.max(np.abs(x))) if x.size else 0.0
+    frames_raw = _frame(x, frame, hop)
+    frames = frames_raw / peak if peak > 0 else frames_raw
     n_frames, w = frames.shape
     tau_min = max(2, int(sr / fmax))
     # One tau of headroom past the search range: finding the bottom of a dip
@@ -186,12 +194,14 @@ def track(
     period = best + np.clip(shift, -1.0, 1.0)
 
     conf = np.clip(1.0 - b, 0.0, 1.0)
-    rms = np.sqrt(np.maximum((frames ** 2).mean(axis=1), 1e-20))
-    rms_db = 20.0 * np.log10(rms)
+    rms_db = 10.0 * np.log10(np.maximum((frames_raw ** 2).mean(axis=1), 1e-20))
+    # Voicing is judged on the normalised copy, so the floor is relative to
+    # the loudest moment of this take rather than to full scale.
+    rel_db = 10.0 * np.log10(np.maximum((frames ** 2).mean(axis=1), 1e-20))
 
     hz = np.where(period > 0, sr / np.maximum(period, 1e-9), np.nan)
     hz = _subharmonic_guard(hz, frames, sr, fmin)
-    unvoiced = (conf < voiced_conf) | (rms_db < VOICED_FLOOR_DB) | (hz < fmin) | (hz > fmax)
+    unvoiced = (conf < voiced_conf) | (rel_db < VOICED_FLOOR_DB) | (hz < fmin) | (hz > fmax)
     hz = np.where(unvoiced, np.nan, hz)
 
     time_ms = np.arange(n_frames) * hop * 1000.0 / sr
