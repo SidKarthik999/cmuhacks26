@@ -356,7 +356,10 @@ def compare(
     values["overall_score"] = overall
 
     rows = _note_rows(
-        pitch.segment_notes(t_contour), t_contour, student_hz, t_level, s_level, hop_ms
+        pitch.segment_notes(
+            t_contour, onsets_ms=dsp.pick_attacks(teacher, sr=sr)
+        ),
+        t_contour, student_hz, t_level, s_level, hop_ms,
     )
 
     caveats: List[str] = []
