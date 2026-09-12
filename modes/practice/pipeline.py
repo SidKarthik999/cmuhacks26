@@ -32,8 +32,9 @@ except ImportError:  # pragma: no cover
     SignalStore = None  # type: ignore
 
 try:
-    from sync import StreamingAligner, render_aligned_playback  # noqa: E402
+    from sync import DEFAULT_HOP_LENGTH, StreamingAligner, render_aligned_playback  # noqa: E402
 except ImportError:  # pragma: no cover
+    DEFAULT_HOP_LENGTH = 2048
     StreamingAligner = None  # type: ignore
     render_aligned_playback = None  # type: ignore
 
@@ -45,6 +46,18 @@ class ParticipantStream:
     cleaner: StreamingCleaner
     raw: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float32))
     cleaned: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float32))
+    # Cleaned audio not yet fed to the Task 4 StreamingAligner. Separate from
+    # `cleaned` (the rolling ~4s mixing buffer) because the aligner must only
+    # ever see genuinely new audio -- re-feeding it `cleaned`'s full rolling
+    # window every push() call would re-add heavily overlapping chroma
+    # frames to its internal history each time instead of incremental new
+    # frames (see docs/integration-contracts.md).
+    pending_for_aligner: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float32))
+    # Mirrors the aligner's own trailing chroma window in raw-sample terms,
+    # so warp_path's frame indices (converted to local via
+    # StreamingAligner.local_warp_path) stay meaningful against the audio
+    # passed to render_aligned_playback.
+    aligner_window_audio: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float32))
     singing: bool = False
     last_confidence: float = 0.0
     capture_start_ms: Optional[float] = None
@@ -95,6 +108,7 @@ class PracticeSession:
         st.raw = np.concatenate([st.raw, pcm])[-self.sample_rate * 4 :]
         if cleaned.size:
             st.cleaned = np.concatenate([st.cleaned, cleaned])[-self.sample_rate * 4 :]
+            st.pending_for_aligner = np.concatenate([st.pending_for_aligner, cleaned])
 
         for ev in events:
             st.last_confidence = ev["confidence"]
@@ -140,7 +154,7 @@ class PracticeSession:
             return active[0].cleaned[-int(0.25 * self.sample_rate) :], False
 
         a, b = active[0], active[1]
-        mixed = self._mix_with_task4(a.cleaned, b.cleaned)
+        mixed = self._mix_with_task4(a, b)
         if mixed is not None:
             return mixed, True
 
@@ -153,16 +167,41 @@ class PracticeSession:
         mix = 0.5 * a_pcm[-n:] + 0.5 * b_pcm[-n:]
         return mix.astype(np.float32), True
 
-    def _mix_with_task4(self, pcm_a: np.ndarray, pcm_b: np.ndarray) -> Optional[np.ndarray]:
+    def _mix_with_task4(
+        self, a: ParticipantStream, b: ParticipantStream
+    ) -> Optional[np.ndarray]:
         if self._aligner is None or render_aligned_playback is None:
             return None
-        wav_a = write_wav_bytes(pcm_a, self.sample_rate)
-        wav_b = write_wav_bytes(pcm_b, self.sample_rate)
+        # Only feed the aligner genuinely new audio since its last push --
+        # never a.cleaned/b.cleaned's full rolling window, which would
+        # re-add already-seen chroma frames to the aligner's internal
+        # history every call (see ParticipantStream.pending_for_aligner).
+        min_len = DEFAULT_HOP_LENGTH
+        if a.pending_for_aligner.size < min_len or b.pending_for_aligner.size < min_len:
+            return None
+        new_a, new_b = a.pending_for_aligner, b.pending_for_aligner
+        wav_a = write_wav_bytes(new_a, self.sample_rate)
+        wav_b = write_wav_bytes(new_b, self.sample_rate)
+        a.pending_for_aligner = np.zeros(0, dtype=np.float32)
+        b.pending_for_aligner = np.zeros(0, dtype=np.float32)
+
         result = self._aligner.push(wav_a, wav_b)
         if result is None:
             return None
+
+        # Mirror the aligner's own trailing-window trim in raw-sample terms
+        # so the audio we render against lines up with warp_path's frame
+        # numbering (converted to local via local_warp_path below).
+        window_samples = self._aligner.window_frames * self._aligner.hop_length
+        a.aligner_window_audio = np.concatenate([a.aligner_window_audio, new_a])[-window_samples:]
+        b.aligner_window_audio = np.concatenate([b.aligner_window_audio, new_b])[-window_samples:]
+
+        local_warp_path = self._aligner.local_warp_path(result)
         playback = render_aligned_playback(
-            wav_a, wav_b, result.warp_path, result.hop_length_ms
+            write_wav_bytes(a.aligner_window_audio, self.sample_rate),
+            write_wav_bytes(b.aligner_window_audio, self.sample_rate),
+            local_warp_path,
+            result.hop_length_ms,
         )
         pcm, _sr = read_wav(playback.mixed_wav)
         n = min(pcm.size, int(0.25 * self.sample_rate))

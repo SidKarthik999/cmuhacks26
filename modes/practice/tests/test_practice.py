@@ -52,3 +52,31 @@ def test_two_singers_enable_sync(tmp_path):
     assert saw_sync is True
     assert two_singers is True
     store.close()
+
+
+def test_task4_aligner_never_reingests_full_rolling_buffer():
+    """Regression test for the fix in docs/integration-contracts.md:
+    _mix_with_task4 used to re-feed StreamingAligner.push() the entire
+    ~4s rolling `cleaned` buffer every call, so its internal chroma history
+    accumulated heavily overlapping/duplicated frames instead of genuinely
+    new ones. After the fix, pending_for_aligner (what actually gets fed to
+    the aligner) must never exceed roughly one hop's worth of new audio
+    between pushes -- it should be drained on every call that has enough
+    audio to feed the aligner, never left to grow toward the ~4s window.
+    """
+    sr = 16000
+    pcm = singing_scale(sample_rate=sr, note_ms=280)
+    session = PracticeSession("room_p", ["alice", "bob"], sample_rate=sr)
+
+    max_pending_seen = 0
+    for chunk, t in _chunks(pcm, sr):
+        session.push("alice", chunk, t)
+        session.push("bob", chunk, t)
+        for st in session.streams.values():
+            max_pending_seen = max(max_pending_seen, st.pending_for_aligner.size)
+
+    four_second_window = sr * 4
+    # The bug's signature was pending == the full rolling ~4s buffer; the
+    # fix keeps it near one hop (a few hundred ms at most across a couple
+    # of missed feeds), nowhere near the full window.
+    assert max_pending_seen < four_second_window // 4

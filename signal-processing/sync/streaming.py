@@ -56,6 +56,24 @@ class StreamingAligner:
         self._frame_offset = 0  # frames dropped so far, to keep warp_path indices global
         self.latest: Optional[AlignmentResult] = None
 
+    @property
+    def frame_offset(self) -> int:
+        """Total frames dropped from the trailing window so far. AlignmentResult.warp_path
+        indices are global (relative to session start, not to the current window) --
+        subtract this to get indices relative to whatever windowed audio buffer a
+        caller is maintaining locally (see local_warp_path)."""
+        return self._frame_offset
+
+    def local_warp_path(self, result: AlignmentResult) -> List[Tuple[int, int]]:
+        """Convert `result.warp_path`'s global frame indices to indices
+        relative to the current trailing window (i.e. relative to a caller-
+        maintained buffer holding just the last `window_frames` worth of
+        audio for each stream, not the full session history). Use this
+        before passing a streaming result's warp_path into
+        `render_aligned_playback` on a windowed buffer."""
+        offset = self._frame_offset
+        return [(a - offset, b - offset) for a, b in result.warp_path]
+
     def push(self, chunk_ref: bytes, chunk_other: bytes) -> Optional[AlignmentResult]:
         """Append newly-arrived audio for both streams and recompute the
         alignment over the trailing window. Returns None until both streams
