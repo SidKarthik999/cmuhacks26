@@ -1,0 +1,15 @@
+{
+  "id": "cmp_00000000-0000-0000-0000-000000000001",
+  "signal_ids": [
+    "sig_00000000-0000-0000-0000-000000000001",
+    "sig_00000000-0000-0000-0000-000000000002"
+  ],
+  "reference_signal_id": "sig_00000000-0000-0000-0000-000000000001",
+  "alignment_method": "dtw_chroma",
+  "content_matched": true,
+  "pitch_deviation_cents": { "mean_abs": 8.4, "max_abs": 22.1, "sample_count": 214 },
+  "timing_deviation_ms": { "mean_abs": 34.0, "max_abs": 110.0, "sample_count": 12 },
+  "pitch_accuracy": 91.6,
+  "timing_accuracy": 83.0,
+  "overall_similarity_score": 89.02
+}

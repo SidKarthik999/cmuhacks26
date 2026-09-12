@@ -1,0 +1,83 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cmuhacks26/shared/schemas/comparison_result.schema.json",
+  "title": "ComparisonResult",
+  "description": "Task 5 — pitch/timing difference between two aligned Signals, and the collapsed 0-100% score for Teach mode. Owned by Person C (signal-processing/compare/). Consumed by Person A/UI for display and by Teach mode's grading flow.",
+  "type": "object",
+  "version": 1,
+  "required": [
+    "id",
+    "signal_ids",
+    "reference_signal_id",
+    "alignment_method",
+    "content_matched",
+    "pitch_deviation_cents",
+    "timing_deviation_ms",
+    "pitch_accuracy",
+    "timing_accuracy",
+    "overall_similarity_score"
+  ],
+  "properties": {
+    "id": { "type": "string" },
+    "signal_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "reference_signal_id": {
+      "type": "string",
+      "description": "Which of signal_ids is the reference the other is compared against (e.g. the teacher's Signal in Teach mode)."
+    },
+    "alignment_method": {
+      "type": "string",
+      "enum": ["dtw_chroma", "timestamp_offset"],
+      "description": "The Task 4 AlignmentResult.method used to produce the correspondence this comparison is built on."
+    },
+    "content_matched": {
+      "type": "boolean",
+      "description": "False when alignment_method is timestamp_offset -- the two signals don't share melodic content (e.g. different material, not the same melody echoed back), so pitch/timing comparison isn't meaningful and the *_deviation/*_accuracy/overall_similarity_score fields are all null."
+    },
+    "pitch_deviation_cents": {
+      "type": ["object", "null"],
+      "description": "Summary stats over aligned, jointly-voiced samples. Null when content_matched is false.",
+      "properties": {
+        "mean_abs": { "type": "number" },
+        "max_abs": { "type": "number" },
+        "sample_count": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["mean_abs", "max_abs", "sample_count"],
+      "additionalProperties": false
+    },
+    "timing_deviation_ms": {
+      "type": ["object", "null"],
+      "description": "Summary stats over matched note onsets (other's actual onset vs. where the DTW warp trend predicted it). Null when content_matched is false.",
+      "properties": {
+        "mean_abs": { "type": "number" },
+        "max_abs": { "type": "number" },
+        "sample_count": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["mean_abs", "max_abs", "sample_count"],
+      "additionalProperties": false
+    },
+    "pitch_accuracy": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 100,
+      "description": "clamp(100 - mean_abs_pitch_deviation_cents, 0, 100) -- a full semitone (100 cents) off zeroes this out. Null when content_matched is false."
+    },
+    "timing_accuracy": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 100,
+      "description": "clamp(100 - mean_abs_timing_deviation_ms / 2, 0, 100) -- 200ms of onset drift zeroes this out. Null when content_matched is false."
+    },
+    "overall_similarity_score": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Resolved formula: 0.7 * pitch_accuracy + 0.3 * timing_accuracy. Null when content_matched is false."
+    }
+  },
+  "additionalProperties": false
+}

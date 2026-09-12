@@ -18,7 +18,7 @@ Schema ownership matches `ROADMAP.md` Part 4.
 | `note_event.schema.json` | Person B | A/UI | Landed |
 | `signal.schema.json` | Person C | A, B | Landed |
 | `alignment_result.schema.json` | Person C | A (routing/mix), B | Landed |
-| `comparison_result.schema.json` | Person C | A/UI | Not yet landed — Task 5 |
+| `comparison_result.schema.json` | Person C | A/UI | Landed |
 
 **Change rule:** owner defines; every current consumer reviews before merge.
 Breaking changes bump the schema `version` field.
@@ -289,10 +289,41 @@ Confidence is a heuristic derived from average per-step DTW cost (cosine
 distance over chroma), not a calibrated probability — use it to flag poor
 alignments, not as a statistical guarantee.
 
-## Pending schemas (stubbed, not yet implemented)
+## comparison_result.schema.json (Task 5)
 
-`comparison_result.schema.json` (Task 5, Person C) is not defined yet. Add
-it here once it lands.
+- **Owner:** Person C (`signal-processing/compare/`)
+- **Consumers:** Person A/UI, Teach mode's grading flow (whenever it lands)
+- **Python binding:** `signal-processing/compare/compare.py`
+  (`ComparisonResult` dataclass)
+- **Mock fixture:** `shared/mocks/mock_comparison_result.json`
+- **What it represents:** pitch/timing deviation between two Signals that
+  have already been aligned by Task 4, plus the resolved
+  `0.7 * pitch_accuracy + 0.3 * timing_accuracy` score. Reuses Person B's
+  `extract_pitch_contour`/`notes_from_contour` (Task 8) as the shared
+  pitch-tracking building block, per ROADMAP.md's cross-cutting note.
+- **Confidence-gated content check:** if the Task 4 `AlignmentResult` used
+  the `timestamp_offset` fallback (the two signals don't share melodic
+  content), per-note pitch/timing comparison isn't meaningful — there's no
+  real correspondence to measure deviation against. `compare_signals` in
+  that case returns `content_matched: false` with every deviation/accuracy/
+  score field `null`, rather than fabricating a number.
+- **Normalization curves** (70/30 weighting is fixed by ROADMAP.md; these
+  are the implementation-detail constants): `pitch_accuracy = clamp(100 -
+  mean_abs_pitch_deviation_cents, 0, 100)` (a full semitone, 100 cents,
+  zeroes the score); `timing_accuracy = clamp(100 -
+  mean_abs_timing_deviation_ms / 2, 0, 100)` (200ms of onset drift zeroes
+  the score).
+- **Timing deviation basis:** per-note, not per-frame — extracts note
+  onsets from both signals' pitch contours (Task 8's `notes_from_contour`),
+  maps each reference onset through the Task 4 warp path to predict where
+  it should land in the other signal's timeline, and compares that
+  prediction against the other signal's actual nearest onset (within a
+  300ms match tolerance, else skipped rather than guessed).
+- **Verified against ROADMAP.md's acceptance criteria:** a known
+  intentional pitch error is surfaced accurately (a 50-cent shift is
+  detected as such); a correct-pitch/rushed-timing case scores noticeably
+  higher than a wrong-pitch/correct-timing case (see
+  `signal-processing/tests/test_compare.py`).
 
 Person B assumes float32 mono PCM chunks keyed by `participant_id` +
 `room_id` (`shared/mocks/mock_audio_track.py`) as a Python-side stand-in for
