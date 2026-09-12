@@ -292,6 +292,11 @@ function startFeedPlayback(s: Session): void {
     window.AudioContext ||
     (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
   s.playCtx = s.playCtx ?? new AudioCtx();
+  // Browsers can create an AudioContext in a "suspended" state (autoplay
+  // policy) and never produce sound until explicitly resumed. This call is
+  // still within the user-gesture chain from the Join/Create button click,
+  // which is when resume() is most reliably allowed to succeed.
+  void s.playCtx.resume();
 
   const ws = new WebSocket(
     `${wsBase()}/ws/audio?room_id=${encodeURIComponent(s.room.room_id)}&role=client&participant_id=${encodeURIComponent(s.participant_id)}`,
@@ -313,6 +318,7 @@ function startFeedPlayback(s: Session): void {
 function playFeedChunk(s: Session, feed: string, msg: Record<string, unknown>): void {
   const ctx = s.playCtx;
   if (!ctx) return;
+  if (ctx.state === "suspended") void ctx.resume();
   const b64 = String(msg.pcm_base64 ?? "");
   if (!b64) return;
   const binary = atob(b64);

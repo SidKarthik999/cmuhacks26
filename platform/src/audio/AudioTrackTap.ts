@@ -20,6 +20,7 @@ export class AudioTrackTap {
   private ctx: AudioContext | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private processor: ScriptProcessorNode | null = null;
+  private silentGain: GainNode | null = null;
   private seq = 0;
   private startedAt = 0;
 
@@ -64,15 +65,25 @@ export class AudioTrackTap {
       this.onChunk(chunk);
     };
     this.source.connect(this.processor);
-    this.processor.connect(this.ctx.destination);
+    // ScriptProcessorNode only fires onaudioprocess while connected to a
+    // destination -- but connecting straight to ctx.destination would loop
+    // the local mic back to the local speakers (audible echo/feedback).
+    // Route through a zero-gain node instead: fires the callback, produces
+    // no sound.
+    this.silentGain = this.ctx.createGain();
+    this.silentGain.gain.value = 0;
+    this.processor.connect(this.silentGain);
+    this.silentGain.connect(this.ctx.destination);
   }
 
   stop(): void {
     this.processor?.disconnect();
     this.source?.disconnect();
+    this.silentGain?.disconnect();
     void this.ctx?.close();
     this.processor = null;
     this.source = null;
+    this.silentGain = null;
     this.ctx = null;
   }
 }
