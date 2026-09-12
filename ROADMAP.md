@@ -296,4 +296,42 @@ These aren't new numbered tasks — they're integration requirements that fall o
 
 ---
 
-*Roadmap updated with the three-mode composition layer (Teach, Practice, Performance). All previously flagged open questions are resolved (max participants, tempo-drift/DTW requirement, cleaning-automatic behavior, scoring formula, overlap handling, Practice mode single-singer behavior, Performance mode dropout handling). No open questions remain as of this revision — future design changes should be added as new `> **Open question:**` callouts as they arise.*
+# Part 3: Team assignments (3-person split)
+
+Three tracks, each owned by one person, ordered so each person's first task matches their assignment below. Tracks run in parallel where possible; cross-track dependencies are called out explicitly — agree on the **shared interfaces** (Signal schema, pitch-tracking module signature) early since both are consumed across tracks.
+
+## Person A — Platform & Infrastructure track
+
+1. **Task 1 — Video conversation platform.** (first task) Get a working multi-party call with per-participant audio tracks exposed for downstream processing. Sized for ~25 concurrent participants (SFU-backed).
+2. **Task 9 — Multi-feed audio routing** *(new task, defined in Part 2)*. Extend the platform so different participants in the same room can receive different audio feeds — e.g. Performance mode's performers-hear-raw/listeners-hear-processed split, Practice mode's raw-call-plus-enhanced-feed.
+3. **Mode & role infrastructure** (Part 2, "Mode selection & roles"). Add the room-level `mode` field (`teach` / `practice` / `performance`) and role assignment at join time (`teacher`/`student`, peer/peer, `performer`/`lead`/`listener`).
+4. **Integration support:** wire Task 9's routing into Performance mode (step 4) and Practice mode (step 4) once Person B/C's streaming pipelines produce a mix to route.
+
+## Person B — Audio Signal Intelligence track
+
+1. **Task 2 — Singing detection.** (first task) Per-participant `is_singing` classification off Person A's raw audio tracks.
+2. **Task 7 — Signal cleaning (noise removal).** Build both the batch variant (operates on a closed Signal) and the streaming variant (<1–2s latency, needed by Practice/Performance) — resolved to run automatically on every extracted Signal.
+3. **Task 8 — Convert signal to notes.** Build the shared pitch-tracking module (YIN/pYIN/CREPE) as part of this task — **Person C's Task 5 depends on this module**, so land a stable function signature for it early and communicate it, even before Task 8's full note-display output is finished.
+4. **Integration support:** Teach mode's note-display path (Part 2) and the pitch-accuracy sub-score feeding Person C's Task 5 scoring formula.
+
+## Person C — Signal Storage & Alignment track
+
+1. **Task 3 — Signal extraction, storage, and replay.** (first task) Define and own the **Signal schema** — this is the contract everyone else's tasks consume, so land it early and communicate any changes immediately.
+2. **Task 4 — Sync two signals.** Full DTW-based alignment (resolved — not just constant offset), with an incremental/streaming variant for the <1–2s latency modes.
+3. **Task 6 — Sync multiple (<5) signals.** Extends Task 4 to a group, with a live reference-reassignment path for Performance mode's performer-dropout handling (resolved in Part 2).
+4. **Task 5 — Compare two signals.** Depends on Task 4 (alignment) and on Person B's pitch-tracking module (Task 8) for the pitch-deviation metric. Implement the resolved `0.7 * pitch_accuracy + 0.3 * timing_accuracy` scoring formula.
+5. **Integration support:** Teach mode's `current_reference` state machine and grading flow (Part 2), and the sync/compare wiring for Practice and Performance modes.
+
+## Shared interfaces to lock down early
+
+- **Signal schema** (Person C, Task 3) — every other track's tasks read/write this. Treat changes to it as breaking changes requiring a heads-up to A and B.
+- **Pitch-tracking module** (Person B, Task 8) — consumed by Person C's Task 5. Agree on a stub signature (e.g. `extract_pitch_contour(audio) -> [{time_ms, pitch_hz, confidence}]`) before either side needs the real implementation, so both can develop against it in parallel.
+- **Streaming latency contract** — Tasks 4, 6, 7 (Person B/C) all need a <1–2s streaming variant; agree on a common "rolling buffer" input shape so these compose without each person inventing their own.
+
+## Final integration phase (all three)
+
+Once each person's individual tasks are in a working state, wire together Part 2's three modes — this is inherently cross-track (Teach touches B+C, Practice touches B+C+A's routing, Performance touches all three) and is best done as a joint session rather than assigned to one person.
+
+---
+
+*Roadmap updated with the three-mode composition layer (Teach, Practice, Performance) and the 3-person team assignment. All previously flagged open questions are resolved (max participants, tempo-drift/DTW requirement, cleaning-automatic behavior, scoring formula, overlap handling, Practice mode single-singer behavior, Performance mode dropout handling). No open questions remain as of this revision — future design changes should be added as new `> **Open question:**` callouts as they arise.*
