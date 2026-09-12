@@ -498,23 +498,48 @@ def pad_to(x: np.ndarray, length: int) -> np.ndarray:
     return np.pad(x, (0, length - x.size)).astype(np.float32)
 
 
-def mix(stems: Sequence[np.ndarray], gains_db: Optional[Sequence[float]] = None) -> np.ndarray:
-    """Sum stems at per-stem gains, then guard the peak.
+def mix_detailed(
+    stems: Sequence[np.ndarray], gains_db: Optional[Sequence[float]] = None
+) -> Tuple[np.ndarray, float]:
+    """Sum stems at per-stem gains, guard the peak, report the guard.
 
-    Gain is applied linearly in amplitude so a fader at -6 dB contributes
-    exactly half the amplitude -- the validation sweep asserts this.
+    Returns (audio, trim_db), where `trim_db` is 0.0 unless the sum would have
+    clipped and a broadband trim was applied to bring it back under full
+    scale.
+
+    The trim is returned rather than swallowed because it is the one thing
+    about a fader bank that surprises people. Gain is applied linearly in
+    amplitude, so a fader at -6 dB contributes exactly half the amplitude and
+    the validation sweep asserts that to a hundredth of a dB -- but a *uniform*
+    move of every fader up 6 dB does not make the mix 6 dB louder once the sum
+    is already near full scale, because the guard gives some of it back. On a
+    five-voice band mixed to -23 LUFS a stem, +6 dB on everything measures
+    +3.1 dB out, and the missing 2.9 dB is this trim. Without it reported, the
+    interface looks broken; with it reported, the interface can say so.
+
+    The trim is broadband and applied to the sum, so it changes the level of
+    the mix and not the balance within it. Relative fader moves -- the ones
+    that are actually musically interesting -- are unaffected.
     """
     if not stems:
-        return np.zeros(0, dtype=np.float32)
+        return np.zeros(0, dtype=np.float32), 0.0
     length = max(s.size for s in stems)
     acc = np.zeros(length, dtype=np.float64)
     for i, s in enumerate(stems):
         g = 10.0 ** ((gains_db[i] if gains_db is not None else 0.0) / 20.0)
         acc += pad_to(s, length) * g
     peak = float(np.max(np.abs(acc))) if acc.size else 0.0
+    trim_db = 0.0
     if peak > 0.99:
-        acc *= 0.99 / peak
-    return acc.astype(np.float32)
+        trim = 0.99 / peak
+        acc *= trim
+        trim_db = 20.0 * float(np.log10(trim))
+    return acc.astype(np.float32), trim_db
+
+
+def mix(stems: Sequence[np.ndarray], gains_db: Optional[Sequence[float]] = None) -> np.ndarray:
+    """`mix_detailed` for the callers that do not need the trim figure."""
+    return mix_detailed(stems, gains_db)[0]
 
 
 def correlation(a: np.ndarray, b: np.ndarray) -> float:

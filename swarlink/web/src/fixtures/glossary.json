@@ -1,1 +1,529 @@
-[{"key":"overall_score","label":"Overall","unit":"/100","value":null,"display":"--","meaning":"Seventy percent pitch, thirty percent volume. Exactly that, with no hidden extra terms -- timing is measured and reported separately rather than folded in.","reading":"The weighting says that singing the right note matters more than matching the teacher's loudness, but that phrasing is not free. The arithmetic is checked against the two sub-scores on every run.","good":"high","anchor":null,"anchors":[]},{"key":"pitch_score","label":"Pitch score","unit":"/100","value":null,"display":"--","meaning":"Pitch accuracy mapped onto 0-100 through fixed perceptual landmarks rather than a curve chosen to look generous.","reading":"The landmarks are the anchors of pitch accuracy: dead centre is 100, the edge of in-tune is 90, a quarter tone is 70, a whole semitone out is 30. Worth 70% of the overall score.","good":"high","anchor":null,"anchors":[]},{"key":"volume_score","label":"Volume score","unit":"/100","value":null,"display":"--","meaning":"How closely the student's dynamic shaping follows the teacher's, mapped onto 0-100. Overall level difference is excluded on purpose.","reading":"Matching the teacher's swell within 2 dB scores about 90. Singing the line at one flat volume while the teacher shapes it costs most of this score. Worth 30% of the overall score.","good":"high","anchor":null,"anchors":[]},{"key":"mean_abs_cents","label":"Pitch accuracy","unit":"cents","value":null,"display":"--","meaning":"How far the student's pitch sits from the teacher's, averaged over every moment both of them were singing. A cent is a hundredth of a semitone, so 100 cents is the distance to the next note on a piano.","reading":"Under 25 cents reads as in tune. Around 50 is a quarter tone and audible to anyone. At 100 the student is singing a different note.","good":"low","anchor":null,"anchors":[{"value":0.0,"label":"dead centre"},{"value":5.0,"label":"below what anyone can hear"},{"value":15.0,"label":"a good singer's natural wobble"},{"value":25.0,"label":"the edge of sounding in tune"},{"value":50.0,"label":"a quarter tone -- audibly out"},{"value":100.0,"label":"a whole semitone -- the wrong note"}]},{"key":"median_signed_cents","label":"Pitch bias","unit":"cents","value":null,"display":"--","meaning":"Whether the student is consistently above or below the teacher, rather than merely scattered. Positive is sharp, negative is flat.","reading":"A large bias with small scatter is the easiest fault to fix: the student is singing the shape correctly but anchored to the wrong reference. Scatter without bias is an intonation problem instead.","good":"zero","anchor":null,"anchors":[{"value":0.0,"label":"dead centre"},{"value":5.0,"label":"below what anyone can hear"},{"value":15.0,"label":"a good singer's natural wobble"},{"value":25.0,"label":"the edge of sounding in tune"},{"value":50.0,"label":"a quarter tone -- audibly out"},{"value":100.0,"label":"a whole semitone -- the wrong note"}]},{"key":"cents_spread","label":"Pitch stability","unit":"cents","value":null,"display":"--","meaning":"The spread of the student's deviation once the constant bias is removed -- how steady the intonation is from moment to moment.","reading":"Low spread means the pitch is under control even if it is in the wrong place. High spread means it wanders, which is a breath support and listening problem rather than a tuning one.","good":"low","anchor":null,"anchors":[{"value":0.0,"label":"dead centre"},{"value":5.0,"label":"below what anyone can hear"},{"value":15.0,"label":"a good singer's natural wobble"},{"value":25.0,"label":"the edge of sounding in tune"},{"value":50.0,"label":"a quarter tone -- audibly out"},{"value":100.0,"label":"a whole semitone -- the wrong note"}]},{"key":"in_tune_percent","label":"Time in tune","unit":"%","value":null,"display":"--","meaning":"The share of sung time within 25 cents of the teacher -- the tolerance inside which two voices are heard as the same note.","reading":"This is the most forgiving pitch number and the one that moves first as a student improves. Above 90% is a confident performance.","good":"high","anchor":null,"anchors":[{"value":50.0,"label":"half the phrase"},{"value":75.0,"label":"most of it"},{"value":90.0,"label":"confident"},{"value":100.0,"label":"throughout"}]},{"key":"level_offset_db","label":"Level offset","unit":"dB","value":null,"display":"--","meaning":"How much louder or quieter the student's whole take is than the teacher's, measured as broadcast loudness (LUFS).","reading":"This one is reported but deliberately not scored. It is mostly microphone distance and gain, which is a room problem rather than a musical one, and penalising it would mark a student down for sitting further from their laptop.","good":"zero","anchor":null,"anchors":[{"value":0.0,"label":"identical"},{"value":1.0,"label":"barely perceptible"},{"value":3.0,"label":"clearly audible"},{"value":6.0,"label":"half or double the loudness"},{"value":12.0,"label":"a different dynamic marking"}]},{"key":"dynamics_error_db","label":"Dynamics match","unit":"dB","value":null,"display":"--","meaning":"How closely the student's loudness *shape* follows the teacher's once the overall level difference is taken out: do they swell and taper in the same places, by the same amount.","reading":"This is the scored volume number, because it is the musical one. Under 2 dB is a faithful copy of the phrasing. Above 6 dB usually means the student sang the line flat while the teacher shaped it.","good":"low","anchor":null,"anchors":[{"value":0.0,"label":"identical"},{"value":1.0,"label":"barely perceptible"},{"value":3.0,"label":"clearly audible"},{"value":6.0,"label":"half or double the loudness"},{"value":12.0,"label":"a different dynamic marking"}]},{"key":"dynamic_range_db","label":"Dynamic range","unit":"dB","value":null,"display":"--","meaning":"The distance from the quietest to the loudest moment of a take.","reading":"Compare the two takes rather than reading either alone. A student with far less range than the teacher is singing everything at one volume; far more usually means uncontrolled rather than expressive.","good":"high","anchor":null,"anchors":[{"value":3.0,"label":"almost flat"},{"value":8.0,"label":"modest shaping"},{"value":15.0,"label":"expressive"},{"value":25.0,"label":"very wide"}]},{"key":"envelope_correlation","label":"Phrasing agreement","unit":"","value":null,"display":"--","meaning":"Correlation between the two loudness curves over time: 1.0 means every swell and taper happens at the same moment.","reading":"Reads phrasing rather than level. High correlation with a large dynamics error means the student shapes the phrase in the right places but exaggerates or flattens it.","good":"high","anchor":null,"anchors":[{"value":0.0,"label":"unrelated"},{"value":0.5,"label":"loosely following"},{"value":0.8,"label":"clearly together"},{"value":1.0,"label":"identical"}]},{"key":"onset_offset_ms","label":"Entry offset","unit":"ms","value":null,"display":"--","meaning":"How late the second singer came in relative to the first, before any correction. Positive is late.","reading":"A constant offset is the easy case: one number fixes the whole take. Under about 20 ms two voices are heard as one attack; past 50 ms the later one is heard as a separate event.","good":"zero","anchor":null,"anchors":[{"value":0.0,"label":"simultaneous"},{"value":10.0,"label":"tighter than a studio ensemble"},{"value":20.0,"label":"still feels locked together"},{"value":30.0,"label":"audibly loose"},{"value":50.0,"label":"heard as an echo"},{"value":100.0,"label":"a different beat"}]},{"key":"residual_offset_ms","label":"Residual offset","unit":"ms","value":null,"display":"--","meaning":"The timing error still left after alignment -- the honest 'after' number.","reading":"This is what the alignment is judged on. It is measured on the aligned audio rather than predicted from the model that produced it, so it cannot flatter itself.","good":"low","anchor":null,"anchors":[{"value":0.0,"label":"simultaneous"},{"value":10.0,"label":"tighter than a studio ensemble"},{"value":20.0,"label":"still feels locked together"},{"value":30.0,"label":"audibly loose"},{"value":50.0,"label":"heard as an echo"},{"value":100.0,"label":"a different beat"}]},{"key":"worst_window_ms","label":"Worst moment","unit":"ms","value":null,"display":"--","meaning":"The largest timing error found in any 0.8-second window of the take, rather than the average over all of it.","reading":"A take can average near zero and still fall apart in one bar. This is the number an ensemble actually notices, so it is the one the aligner is tuned against.","good":"low","anchor":null,"anchors":[{"value":0.0,"label":"simultaneous"},{"value":10.0,"label":"tighter than a studio ensemble"},{"value":20.0,"label":"still feels locked together"},{"value":30.0,"label":"audibly loose"},{"value":50.0,"label":"heard as an echo"},{"value":100.0,"label":"a different beat"}]},{"key":"tempo_ratio","label":"Tempo ratio","unit":"x","value":null,"display":"--","meaning":"How much faster the second take is than the first. 1.00 is the same tempo; 1.08 is eight percent quicker.","reading":"Anything other than 1.00 means a fixed delay cannot make the two line up -- they diverge as the phrase goes on, which is why the aligner warps time instead of just shifting it.","good":"zero","anchor":null,"anchors":[{"value":1.0,"label":"same tempo"},{"value":1.05,"label":"slightly rushed"},{"value":1.15,"label":"noticeably rushed"}]},{"key":"drift_spread_ms","label":"Drift","unit":"ms","value":null,"display":"--","meaning":"How far apart the two takes would have ended up by the end of the phrase, with no correction, given their tempo difference.","reading":"This is the number that shows why a single delay is not enough. Two singers 8% apart in tempo are a quarter of a second apart after four bars, even if they started together.","good":"low","anchor":null,"anchors":[{"value":0.0,"label":"simultaneous"},{"value":10.0,"label":"tighter than a studio ensemble"},{"value":20.0,"label":"still feels locked together"},{"value":30.0,"label":"audibly loose"},{"value":50.0,"label":"heard as an echo"},{"value":100.0,"label":"a different beat"},{"value":250.0,"label":"a beat apart"}]},{"key":"confidence","label":"Confidence","unit":"","value":null,"display":"--","meaning":"How strongly the audio supported the alignment that was chosen, from the peak of the onset cross-correlation.","reading":"Low confidence does not mean the singers were bad; it usually means the material has few clear attacks to lock onto, such as one long sustained vowel. Treat the timing numbers as soft below 0.5.","good":"high","anchor":null,"anchors":[{"value":0.3,"label":"weak evidence"},{"value":0.6,"label":"solid"},{"value":0.85,"label":"unambiguous"}]},{"key":"voiced_percent","label":"Voiced time","unit":"%","value":null,"display":"--","meaning":"The share of the take where a definite pitch was detectable.","reading":"Low values mean breath, consonants, silence, or a signal too noisy to track -- and they cap how much of the take the pitch score is actually based on. Shown so a high score on a mostly-silent take cannot pass unnoticed.","good":"high","anchor":null,"anchors":[{"value":40.0,"label":"mostly not singing"},{"value":70.0,"label":"normal for a lyric"},{"value":95.0,"label":"a sustained exercise"}]}]
+[
+    {
+        "key": "overall_score",
+        "label": "Overall",
+        "unit": "/100",
+        "value": null,
+        "display": "--",
+        "meaning": "Seventy percent pitch, thirty percent volume. Exactly that, with no hidden extra terms -- timing is measured and reported separately rather than folded in.",
+        "reading": "The weighting says that singing the right note matters more than matching the teacher's loudness, but that phrasing is not free. The arithmetic is checked against the two sub-scores on every run.",
+        "good": "high",
+        "anchor": null,
+        "anchors": []
+    },
+    {
+        "key": "pitch_score",
+        "label": "Pitch score",
+        "unit": "/100",
+        "value": null,
+        "display": "--",
+        "meaning": "Pitch accuracy mapped onto 0-100 through fixed perceptual landmarks rather than a curve chosen to look generous.",
+        "reading": "The landmarks are the anchors of pitch accuracy: dead centre is 100, the edge of in-tune is 90, a quarter tone is 70, a whole semitone out is 30. Worth 70% of the overall score.",
+        "good": "high",
+        "anchor": null,
+        "anchors": []
+    },
+    {
+        "key": "volume_score",
+        "label": "Volume score",
+        "unit": "/100",
+        "value": null,
+        "display": "--",
+        "meaning": "How closely the student's dynamic shaping follows the teacher's, mapped onto 0-100. Overall level difference is excluded on purpose.",
+        "reading": "Matching the teacher's swell within 2 dB scores about 90. Singing the line at one flat volume while the teacher shapes it costs most of this score. Worth 30% of the overall score.",
+        "good": "high",
+        "anchor": null,
+        "anchors": []
+    },
+    {
+        "key": "mean_abs_cents",
+        "label": "Pitch accuracy",
+        "unit": "cents",
+        "value": null,
+        "display": "--",
+        "meaning": "How far the student's pitch sits from the teacher's, averaged over every moment both of them were singing. A cent is a hundredth of a semitone, so 100 cents is the distance to the next note on a piano.",
+        "reading": "Under 25 cents reads as in tune. Around 50 is a quarter tone and audible to anyone. At 100 the student is singing a different note.",
+        "good": "low",
+        "anchor": null,
+        "anchors": [
+            {
+                "value": 0.0,
+                "label": "dead centre"
+            },
+            {
+                "value": 5.0,
+                "label": "below what anyone can hear"
+            },
+            {
+                "value": 15.0,
+                "label": "a good singer's natural wobble"
+            },
+            {
+                "value": 25.0,
+                "label": "the edge of sounding in tune"
+            },
+            {
+                "value": 50.0,
+                "label": "a quarter tone -- audibly out"
+            },
+            {
+                "value": 100.0,
+                "label": "a whole semitone -- the wrong note"
+            }
+        ]
+    },
+    {
+        "key": "median_signed_cents",
+        "label": "Pitch bias",
+        "unit": "cents",
+        "value": null,
+        "display": "--",
+        "meaning": "Whether the student is consistently above or below the teacher, rather than merely scattered. Positive is sharp, negative is flat.",
+        "reading": "A large bias with small scatter is the easiest fault to fix: the student is singing the shape correctly but anchored to the wrong reference. Scatter without bias is an intonation problem instead.",
+        "good": "zero",
+        "anchor": null,
+        "anchors": [
+            {
+                "value": 0.0,
+                "label": "dead centre"
+            },
+            {
+                "value": 5.0,
+                "label": "below what anyone can hear"
+            },
+            {
+                "value": 15.0,
+                "label": "a good singer's natural wobble"
+            },
+            {
+                "value": 25.0,
+                "label": "the edge of sounding in tune"
+            },
+            {
+                "value": 50.0,
+                "label": "a quarter tone -- audibly out"
+            },
+            {
+                "value": 100.0,
+                "label": "a whole semitone -- the wrong note"
+            }
+        ]
+    },
+    {
+        "key": "cents_spread",
+        "label": "Pitch stability",
+        "unit": "cents",
+        "value": null,
+        "display": "--",
+        "meaning": "The spread of the student's deviation once the constant bias is removed -- how steady the intonation is from moment to moment.",
+        "reading": "Low spread means the pitch is under control even if it is in the wrong place. High spread means it wanders, which is a breath support and listening problem rather than a tuning one.",
+        "good": "low",
+        "anchor": null,
+        "anchors": [
+            {
+                "value": 0.0,
+                "label": "dead centre"
+            },
+            {
+                "value": 5.0,
+                "label": "below what anyone can hear"
+            },
+            {
+                "value": 15.0,
+                "label": "a good singer's natural wobble"
+            },
+            {
+                "value": 25.0,
+                "label": "the edge of sounding in tune"
+            },
+            {
+                "value": 50.0,
+                "label": "a quarter tone -- audibly out"
+            },
+            {
+                "value": 100.0,
+                "label": "a whole semitone -- the wrong note"
+            }
+        ]
+    },
+    {
+        "key": "in_tune_percent",
+        "label": "Time in tune",
+        "unit": "%",
+        "value": null,
+        "display": "--",
+        "meaning": "The share of sung time within 25 cents of the teacher -- the tolerance inside which two voices are heard as the same note.",
+        "reading": "This is the most forgiving pitch number and the one that moves first as a student improves. Above 90% is a confident performance.",
+        "good": "high",
+        "anchor": null,
+        "anchors": [
+            {
+                "value": 50.0,
+                "label": "half the phrase"
+            },
+            {
+                "value": 75.0,
+                "label": "most of it"
+            },
+            {
+                "value": 90.0,
+                "label": "confident"
+            },
+            {
+                "value": 100.0,
+                "label": "throughout"
+            }
+        ]
+    },
+    {
+        "key": "level_offset_db",
+        "label": "Level offset",
+        "unit": "dB",
+        "value": null,
+        "display": "--",
+        "meaning": "How much louder or quieter the student's whole take is than the teacher's, measured as broadcast loudness (LUFS).",
+        "reading": "This one is reported but deliberately not scored. It is mostly microphone distance and gain, which is a room problem rather than a musical one, and penalising it would mark a student down for sitting further from their laptop.",
+        "good": "zero",
+        "anchor": null,
+        "anchors": [
+            {
+                "value": 0.0,
+                "label": "identical"
+            },
+            {
+                "value": 1.0,
+                "label": "barely perceptible"
+            },
+            {
+                "value": 3.0,
+                "label": "clearly audible"
+            },
+            {
+                "value": 6.0,
+                "label": "half or double the loudness"
+            },
+            {
+                "value": 12.0,
+                "label": "a different dynamic marking"
+            }
+        ]
+    },
+    {
+        "key": "dynamics_error_db",
+        "label": "Dynamics match",
+        "unit": "dB",
+        "value": null,
+        "display": "--",
+        "meaning": "How closely the student's loudness *shape* follows the teacher's once the overall level difference is taken out: do they swell and taper in the same places, by the same amount.",
+        "reading": "This is the scored volume number, because it is the musical one. Under 2 dB is a faithful copy of the phrasing. Above 6 dB usually means the student sang the line flat while the teacher shaped it.",
+        "good": "low",
+        "anchor": null,
+        "anchors": [
+            {
+                "value": 0.0,
+                "label": "identical"
+            },
+            {
+                "value": 1.0,
+                "label": "barely perceptible"
+            },
+            {
+                "value": 3.0,
+                "label": "clearly audible"
+            },
+            {
+                "value": 6.0,
+                "label": "half or double the loudness"
+            },
+            {
+                "value": 12.0,
+                "label": "a different dynamic marking"
+            }
+        ]
+    },
+    {
+        "key": "dynamic_range_db",
+        "label": "Dynamic range",
+        "unit": "dB",
+        "value": null,
+        "display": "--",
+        "meaning": "The distance from the quietest to the loudest moment of a take.",
+        "reading": "Compare the two takes rather than reading either alone. A student with far less range than the teacher is singing everything at one volume; far more usually means uncontrolled rather than expressive.",
+        "good": "high",
+        "anchor": null,
+        "anchors": [
+            {
+                "value": 3.0,
+                "label": "almost flat"
+            },
+            {
+                "value": 8.0,
+                "label": "modest shaping"
+            },
+            {
+                "value": 15.0,
+                "label": "expressive"
+            },
+            {
+                "value": 25.0,
+                "label": "very wide"
+            }
+        ]
+    },
+    {
+        "key": "envelope_correlation",
+        "label": "Phrasing agreement",
+        "unit": "",
+        "value": null,
+        "display": "--",
+        "meaning": "Correlation between the two loudness curves over time: 1.0 means every swell and taper happens at the same moment.",
+        "reading": "Reads phrasing rather than level. High correlation with a large dynamics error means the student shapes the phrase in the right places but exaggerates or flattens it.",
+        "good": "high",
+        "anchor": null,
+        "anchors": [
+            {
+                "value": 0.0,
+                "label": "unrelated"
+            },
+            {
+                "value": 0.5,
+                "label": "loosely following"
+            },
+            {
+                "value": 0.8,
+                "label": "clearly together"
+            },
+            {
+                "value": 1.0,
+                "label": "identical"
+            }
+        ]
+    },
+    {
+        "key": "onset_offset_ms",
+        "label": "Entry offset",
+        "unit": "ms",
+        "value": null,
+        "display": "--",
+        "meaning": "How late the second singer came in relative to the first, before any correction. Positive is late.",
+        "reading": "A constant offset is the easy case: one number fixes the whole take. Under about 20 ms two voices are heard as one attack; past 50 ms the later one is heard as a separate event.",
+        "good": "zero",
+        "anchor": null,
+        "anchors": [
+            {
+                "value": 0.0,
+                "label": "simultaneous"
+            },
+            {
+                "value": 10.0,
+                "label": "tighter than a studio ensemble"
+            },
+            {
+                "value": 20.0,
+                "label": "still feels locked together"
+            },
+            {
+                "value": 30.0,
+                "label": "audibly loose"
+            },
+            {
+                "value": 50.0,
+                "label": "heard as an echo"
+            },
+            {
+                "value": 100.0,
+                "label": "a different beat"
+            }
+        ]
+    },
+    {
+        "key": "residual_offset_ms",
+        "label": "Residual offset",
+        "unit": "ms",
+        "value": null,
+        "display": "--",
+        "meaning": "The timing error still left after alignment -- the honest 'after' number.",
+        "reading": "This is what the alignment is judged on. It is measured on the aligned audio rather than predicted from the model that produced it, so it cannot flatter itself.",
+        "good": "low",
+        "anchor": null,
+        "anchors": [
+            {
+                "value": 0.0,
+                "label": "simultaneous"
+            },
+            {
+                "value": 10.0,
+                "label": "tighter than a studio ensemble"
+            },
+            {
+                "value": 20.0,
+                "label": "still feels locked together"
+            },
+            {
+                "value": 30.0,
+                "label": "audibly loose"
+            },
+            {
+                "value": 50.0,
+                "label": "heard as an echo"
+            },
+            {
+                "value": 100.0,
+                "label": "a different beat"
+            }
+        ]
+    },
+    {
+        "key": "worst_window_ms",
+        "label": "Worst moment",
+        "unit": "ms",
+        "value": null,
+        "display": "--",
+        "meaning": "The largest timing error found in any 0.8-second window of the take, rather than the average over all of it.",
+        "reading": "A take can average near zero and still fall apart in one bar. This is the number an ensemble actually notices, so it is the one the aligner is tuned against.",
+        "good": "low",
+        "anchor": null,
+        "anchors": [
+            {
+                "value": 0.0,
+                "label": "simultaneous"
+            },
+            {
+                "value": 10.0,
+                "label": "tighter than a studio ensemble"
+            },
+            {
+                "value": 20.0,
+                "label": "still feels locked together"
+            },
+            {
+                "value": 30.0,
+                "label": "audibly loose"
+            },
+            {
+                "value": 50.0,
+                "label": "heard as an echo"
+            },
+            {
+                "value": 100.0,
+                "label": "a different beat"
+            }
+        ]
+    },
+    {
+        "key": "tempo_ratio",
+        "label": "Tempo ratio",
+        "unit": "x",
+        "value": null,
+        "display": "--",
+        "meaning": "How much faster the second take is than the first. 1.00 is the same tempo; 1.08 is eight percent quicker.",
+        "reading": "Anything other than 1.00 means a fixed delay cannot make the two line up -- they diverge as the phrase goes on, which is why the aligner warps time instead of just shifting it.",
+        "good": "zero",
+        "anchor": null,
+        "anchors": [
+            {
+                "value": 1.0,
+                "label": "same tempo"
+            },
+            {
+                "value": 1.05,
+                "label": "slightly rushed"
+            },
+            {
+                "value": 1.15,
+                "label": "noticeably rushed"
+            }
+        ]
+    },
+    {
+        "key": "drift_spread_ms",
+        "label": "Drift",
+        "unit": "ms",
+        "value": null,
+        "display": "--",
+        "meaning": "How far apart the two takes would have ended up by the end of the phrase, with no correction, given their tempo difference.",
+        "reading": "This is the number that shows why a single delay is not enough. Two singers 8% apart in tempo are a quarter of a second apart after four bars, even if they started together.",
+        "good": "low",
+        "anchor": null,
+        "anchors": [
+            {
+                "value": 0.0,
+                "label": "simultaneous"
+            },
+            {
+                "value": 10.0,
+                "label": "tighter than a studio ensemble"
+            },
+            {
+                "value": 20.0,
+                "label": "still feels locked together"
+            },
+            {
+                "value": 30.0,
+                "label": "audibly loose"
+            },
+            {
+                "value": 50.0,
+                "label": "heard as an echo"
+            },
+            {
+                "value": 100.0,
+                "label": "a different beat"
+            },
+            {
+                "value": 250.0,
+                "label": "a beat apart"
+            }
+        ]
+    },
+    {
+        "key": "confidence",
+        "label": "Confidence",
+        "unit": "",
+        "value": null,
+        "display": "--",
+        "meaning": "How strongly the audio supported the alignment that was chosen, from the peak of the onset cross-correlation.",
+        "reading": "Low confidence does not mean the singers were bad; it usually means the material has few clear attacks to lock onto, such as one long sustained vowel. Treat the timing numbers as soft below 0.5.",
+        "good": "high",
+        "anchor": null,
+        "anchors": [
+            {
+                "value": 0.3,
+                "label": "weak evidence"
+            },
+            {
+                "value": 0.6,
+                "label": "solid"
+            },
+            {
+                "value": 0.85,
+                "label": "unambiguous"
+            }
+        ]
+    },
+    {
+        "key": "voiced_percent",
+        "label": "Voiced time",
+        "unit": "%",
+        "value": null,
+        "display": "--",
+        "meaning": "The share of the take where a definite pitch was detectable.",
+        "reading": "Low values mean breath, consonants, silence, or a signal too noisy to track -- and they cap how much of the take the pitch score is actually based on. Shown so a high score on a mostly-silent take cannot pass unnoticed.",
+        "good": "high",
+        "anchor": null,
+        "anchors": [
+            {
+                "value": 40.0,
+                "label": "mostly not singing"
+            },
+            {
+                "value": 70.0,
+                "label": "normal for a lyric"
+            },
+            {
+                "value": 95.0,
+                "label": "a sustained exercise"
+            }
+        ]
+    }
+]

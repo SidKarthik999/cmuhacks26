@@ -67,6 +67,18 @@ MAX_DELAY_MS = 450.0
 # it explain a late entry as a fast performer, which on this material is a
 # worse fit to the situation than to the data.
 BAND_TEMPO_RANGE = (0.97, 1.03)
+# A performer entering on a voice that reached them over a network cannot be
+# early, so the delay search is one-sided. The small negative margin is for a
+# performer who anticipates the beat slightly and for the estimator's own
+# resolution; it is not room for a genuinely early entry, which in this
+# situation would mean somebody sang before they had anything to sing with.
+#
+# This bound does real work rather than tidying an edge case. The correlation
+# peak on band material is ambiguous modulo the beat, and on an eight-note
+# line at 500 ms a note the symmetric search answered "430 ms early" to a
+# performer who was 100 ms late -- a perfect alias, the same correlation, and
+# a 530 ms error that then dragged the whole band's advance with it.
+MIN_DELAY_MS = -60.0
 
 
 @dataclass
@@ -197,14 +209,17 @@ def measure_delays(
     the lead has almost no spectral overlap with them -- and because a
     performer who is both late and slightly quicker is two unknowns, not one.
 
-    The search is capped at `max_delay_ms` and the tempo held near 1.0, both
-    of which are statements about the situation rather than conveniences. A
-    band is following one beat, so no performer is 10% quicker than the lead;
-    and a performer heard the lead over a network, so nobody is a second and a
-    half late. Without the cap, a five-part chorale -- five different lines on
-    one shared rhythm -- had the bass measured at 1345 ms, which is two notes
-    plus the true 86 ms delay, and the estimate was not wrong so much as
-    answering an ambiguous question. Capping removes the ambiguity.
+    The search is bounded below at `MIN_DELAY_MS`, capped above at
+    `max_delay_ms`, and the tempo held near 1.0. All three are statements
+    about the situation rather than conveniences. A band is following one
+    beat, so no performer is 10% quicker than the lead; a performer heard the
+    lead over a network, so nobody is a second and a half late; and nobody
+    entered before the voice they were following arrived. Without the upper
+    cap, a five-part chorale -- five different lines on one shared rhythm --
+    had the bass measured at 1345 ms, which is two notes plus the true 86 ms
+    delay, and the estimate was not wrong so much as answering an ambiguous
+    question. Without the lower bound the same ambiguity returns as its
+    mirror image, and a 100 ms late entry reads as a 430 ms early one.
     """
     lead = stems[lead_index]
     out: List[Tuple[float, float]] = []
@@ -215,6 +230,7 @@ def measure_delays(
         al = align.align(
             lead, stem, sr=sr,
             max_offset_ms=max_delay_ms,
+            min_offset_ms=MIN_DELAY_MS,
             tempo_range=BAND_TEMPO_RANGE,
         )
         out.append((al.offset_ms, al.confidence))
@@ -404,8 +420,11 @@ def _residual_entries(
 
 def remix(
     result: ConcertResult, gains_db: Sequence[float]
-) -> np.ndarray:
+) -> Tuple[np.ndarray, float]:
     """Re-sum the already-corrected stems at new fader settings.
+
+    Returns (audio, trim_db); see `dsp.mix_detailed` for what the trim is and
+    why it is worth passing back to the interface rather than hiding.
 
     Separate from `run` because moving a fader must not re-run the analysis.
     Cleaning and alignment are the expensive, deterministic part; the mix is
@@ -416,7 +435,7 @@ def remix(
         raise ValueError(
             f"{len(gains)} fader values for {len(result.stems)} performers"
         )
-    return dsp.mix([s.aligned for s in result.stems], gains)
+    return dsp.mix_detailed([s.aligned for s in result.stems], gains)
 
 
 def run_scene(

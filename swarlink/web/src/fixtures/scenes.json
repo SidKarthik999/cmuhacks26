@@ -1,1 +1,533 @@
-[{"key":"lesson:scale","title":"Major scale, eight notes","mode":"lesson","summary":"alto teacher, soprano student; student +18 cents, 1.060x tempo, -4.0 dB, 160 ms late, quiet_room at 22 dB SNR","sample_rate":22050,"truth":{"material":"scale","written_notes":["C4","D4","E4","F4","G4","A4","B4","C5"],"detune_cents":18.0,"tempo_ratio":1.06,"gain_db":-4.0,"entry_ms":160.0},"parts":[{"name":"Teacher","role":"teacher","profile":"alto","duration_ms":4320.0,"peak":0.7327,"lufs":-13.08,"truth":{"detune_cents":0.0,"tempo_ratio":1.0,"gain_db":0.0,"entry_ms":0.0,"room":"quiet_room","snr_db":26.0}},{"name":"Student","role":"student","profile":"soprano","duration_ms":4253.6,"peak":0.47,"lufs":-16.85,"truth":{"detune_cents":18.0,"tempo_ratio":1.06,"gain_db":-4.0,"entry_ms":160.0,"room":"quiet_room","snr_db":22.0}}]},{"key":"lesson:phrase","title":"Phrase with repeated notes","mode":"lesson","summary":"alto teacher, soprano student; student +18 cents, 1.060x tempo, -4.0 dB, 160 ms late, quiet_room at 22 dB SNR","sample_rate":22050,"truth":{"material":"phrase","written_notes":["G4","G4","A4","B4","B4","A4","G4","E4"],"detune_cents":18.0,"tempo_ratio":1.06,"gain_db":-4.0,"entry_ms":160.0},"parts":[{"name":"Teacher","role":"teacher","profile":"alto","duration_ms":4660.0,"peak":0.7502,"lufs":-10.71,"truth":{"detune_cents":0.0,"tempo_ratio":1.0,"gain_db":0.0,"entry_ms":0.0,"room":"quiet_room","snr_db":26.0}},{"name":"Student","role":"student","profile":"soprano","duration_ms":4574.4,"peak":0.4834,"lufs":-14.75,"truth":{"detune_cents":18.0,"tempo_ratio":1.06,"gain_db":-4.0,"entry_ms":160.0,"room":"quiet_room","snr_db":22.0}}]},{"key":"lesson:descending","title":"Descending line","mode":"lesson","summary":"alto teacher, soprano student; student +18 cents, 1.060x tempo, -4.0 dB, 160 ms late, quiet_room at 22 dB SNR","sample_rate":22050,"truth":{"material":"descending","written_notes":["C5","B4","A4","G4","F4","E4","D4","C4"],"detune_cents":18.0,"tempo_ratio":1.06,"gain_db":-4.0,"entry_ms":160.0},"parts":[{"name":"Teacher","role":"teacher","profile":"alto","duration_ms":4000.0,"peak":0.7364,"lufs":-11.66,"truth":{"detune_cents":0.0,"tempo_ratio":1.0,"gain_db":0.0,"entry_ms":0.0,"room":"quiet_room","snr_db":26.0}},{"name":"Student","role":"student","profile":"soprano","duration_ms":3951.7,"peak":0.4751,"lufs":-15.27,"truth":{"detune_cents":18.0,"tempo_ratio":1.06,"gain_db":-4.0,"entry_ms":160.0,"room":"quiet_room","snr_db":22.0}}]},{"key":"duet:unison","title":"Two singers, one line","mode":"duet","summary":"soprano and tenor in unison; second singer 180 ms late at 1.050x and -6.0 dB, laptop at 22 dB SNR","sample_rate":22050,"truth":{"material":"unison","lag_ms":180.0,"tempo_ratio":1.05,"gain_db":-6.0,"upper_notes":["C4","D4","E4","F4","E4","D4","C4","C4"],"lower_notes":["C4","D4","E4","F4","E4","D4","C4","C4"]},"parts":[{"name":"Singer A","role":"singer","profile":"soprano","duration_ms":4440.0,"peak":0.7507,"lufs":-12.53,"truth":{"lag_ms":0.0,"tempo_ratio":1.0,"gain_db":0.0}},{"name":"Singer B","role":"singer","profile":"tenor","duration_ms":4421.9,"peak":0.3773,"lufs":-18.82,"truth":{"lag_ms":180.0,"tempo_ratio":1.05,"gain_db":-6.0}}]},{"key":"duet:thirds","title":"Two singers in thirds","mode":"duet","summary":"soprano and tenor in thirds; second singer 180 ms late at 1.050x and -6.0 dB, laptop at 22 dB SNR","sample_rate":22050,"truth":{"material":"thirds","lag_ms":180.0,"tempo_ratio":1.05,"gain_db":-6.0,"upper_notes":["E4","F4","G4","A4","G4","F4","E4","E4"],"lower_notes":["C4","D4","E4","F4","E4","D4","C4","C4"]},"parts":[{"name":"Singer A","role":"singer","profile":"soprano","duration_ms":4440.0,"peak":0.7684,"lufs":-10.46,"truth":{"lag_ms":0.0,"tempo_ratio":1.0,"gain_db":0.0}},{"name":"Singer B","role":"singer","profile":"tenor","duration_ms":4421.9,"peak":0.3773,"lufs":-18.82,"truth":{"lag_ms":180.0,"tempo_ratio":1.05,"gain_db":-6.0}}]},{"key":"duet:octaves","title":"Soprano and tenor, an octave apart","mode":"duet","summary":"soprano and tenor in octaves; second singer 180 ms late at 1.050x and -6.0 dB, laptop at 22 dB SNR","sample_rate":22050,"truth":{"material":"octaves","lag_ms":180.0,"tempo_ratio":1.05,"gain_db":-6.0,"upper_notes":["C4","D4","E4","F4","E4","D4","C4","C4"],"lower_notes":["C3","D3","E3","F3","E3","D3","C3","C3"]},"parts":[{"name":"Singer A","role":"singer","profile":"soprano","duration_ms":4440.0,"peak":0.7507,"lufs":-12.53,"truth":{"lag_ms":0.0,"tempo_ratio":1.0,"gain_db":0.0}},{"name":"Singer B","role":"singer","profile":"tenor","duration_ms":4421.9,"peak":0.3732,"lufs":-20.77,"truth":{"lag_ms":180.0,"tempo_ratio":1.05,"gain_db":-6.0}}]},{"key":"concert:band","title":"Five-piece band, lead vocal","mode":"concert","summary":"5 performers, lead plus 4; heard-the-lead delays 92-118 ms, 95 in the audience, laptop at 20 dB SNR","sample_rate":22050,"truth":{"material":"band","lead":"Lead","delay_ms":{"Lead":0.0,"Harmony":104.0,"Tenor":92.0,"Baritone":118.0,"Bass":97.0},"lead_delay_ms":100.0,"audience":95},"parts":[{"name":"Lead","role":"lead","profile":"alto","duration_ms":5318.0,"peak":0.7758,"lufs":-11.68,"truth":{"delay_ms":0.0,"gain_db":0.0,"detune_cents":0.0}},{"name":"Harmony","role":"performer","profile":"soprano","duration_ms":5318.0,"peak":0.5915,"lufs":-13.63,"truth":{"delay_ms":104.0,"gain_db":-2.5,"detune_cents":7.0}},{"name":"Tenor","role":"performer","profile":"tenor","duration_ms":5318.0,"peak":0.6727,"lufs":-15.35,"truth":{"delay_ms":92.0,"gain_db":-1.0,"detune_cents":-9.0}},{"name":"Baritone","role":"performer","profile":"baritone","duration_ms":5318.0,"peak":0.5156,"lufs":-18.01,"truth":{"delay_ms":118.0,"gain_db":-3.5,"detune_cents":4.0}},{"name":"Bass","role":"performer","profile":"bass","duration_ms":5318.0,"peak":0.918,"lufs":-14.26,"truth":{"delay_ms":97.0,"gain_db":1.5,"detune_cents":-5.0}}]},{"key":"concert:chorale","title":"Five-part chorale","mode":"concert","summary":"5 performers, lead plus 4; heard-the-lead delays 86-117 ms, 95 in the audience, laptop at 20 dB SNR","sample_rate":22050,"truth":{"material":"chorale","lead":"Sopran1","delay_ms":{"Sopran1":0.0,"Sopran2":107.35,"Alto":107.3,"Tenor":117.3,"Bass":85.9},"lead_delay_ms":100.0,"audience":95},"parts":[{"name":"Sopran1","role":"lead","profile":"soprano","duration_ms":5317.3,"peak":0.7837,"lufs":-10.57,"truth":{"delay_ms":0.0,"gain_db":0.0,"detune_cents":0.0}},{"name":"Sopran2","role":"performer","profile":"alto","duration_ms":5317.3,"peak":0.7674,"lufs":-10.71,"truth":{"delay_ms":107.35,"gain_db":-0.35,"detune_cents":-6.9}},{"name":"Alto","role":"performer","profile":"alto","duration_ms":5317.3,"peak":0.6367,"lufs":-13.38,"truth":{"delay_ms":107.3,"gain_db":-1.72,"detune_cents":-0.8}},{"name":"Tenor","role":"performer","profile":"tenor","duration_ms":5317.3,"peak":0.5609,"lufs":-16.49,"truth":{"delay_ms":117.3,"gain_db":-2.74,"detune_cents":-5.06}},{"name":"Bass","role":"performer","profile":"bass","duration_ms":5317.3,"peak":0.8027,"lufs":-14.79,"truth":{"delay_ms":85.9,"gain_db":0.39,"detune_cents":3.19}}]}]
+[
+    {
+        "key": "lesson:scale",
+        "title": "Major scale, eight notes",
+        "mode": "lesson",
+        "summary": "alto teacher, soprano student; student +18 cents, 1.060x tempo, -4.0 dB, 160 ms late, quiet_room at 22 dB SNR",
+        "sample_rate": 22050,
+        "truth": {
+            "material": "scale",
+            "written_notes": [
+                "C4",
+                "D4",
+                "E4",
+                "F4",
+                "G4",
+                "A4",
+                "B4",
+                "C5"
+            ],
+            "detune_cents": 18.0,
+            "tempo_ratio": 1.06,
+            "gain_db": -4.0,
+            "entry_ms": 160.0
+        },
+        "parts": [
+            {
+                "name": "Teacher",
+                "role": "teacher",
+                "profile": "alto",
+                "duration_ms": 4320.0,
+                "peak": 0.7327,
+                "lufs": -13.08,
+                "truth": {
+                    "detune_cents": 0.0,
+                    "tempo_ratio": 1.0,
+                    "gain_db": 0.0,
+                    "entry_ms": 0.0,
+                    "room": "quiet_room",
+                    "snr_db": 26.0
+                }
+            },
+            {
+                "name": "Student",
+                "role": "student",
+                "profile": "soprano",
+                "duration_ms": 4253.6,
+                "peak": 0.47,
+                "lufs": -16.85,
+                "truth": {
+                    "detune_cents": 18.0,
+                    "tempo_ratio": 1.06,
+                    "gain_db": -4.0,
+                    "entry_ms": 160.0,
+                    "room": "quiet_room",
+                    "snr_db": 22.0
+                }
+            }
+        ]
+    },
+    {
+        "key": "lesson:phrase",
+        "title": "Phrase with repeated notes",
+        "mode": "lesson",
+        "summary": "alto teacher, soprano student; student +18 cents, 1.060x tempo, -4.0 dB, 160 ms late, quiet_room at 22 dB SNR",
+        "sample_rate": 22050,
+        "truth": {
+            "material": "phrase",
+            "written_notes": [
+                "G4",
+                "G4",
+                "A4",
+                "B4",
+                "B4",
+                "A4",
+                "G4",
+                "E4"
+            ],
+            "detune_cents": 18.0,
+            "tempo_ratio": 1.06,
+            "gain_db": -4.0,
+            "entry_ms": 160.0
+        },
+        "parts": [
+            {
+                "name": "Teacher",
+                "role": "teacher",
+                "profile": "alto",
+                "duration_ms": 4660.0,
+                "peak": 0.7502,
+                "lufs": -10.71,
+                "truth": {
+                    "detune_cents": 0.0,
+                    "tempo_ratio": 1.0,
+                    "gain_db": 0.0,
+                    "entry_ms": 0.0,
+                    "room": "quiet_room",
+                    "snr_db": 26.0
+                }
+            },
+            {
+                "name": "Student",
+                "role": "student",
+                "profile": "soprano",
+                "duration_ms": 4574.4,
+                "peak": 0.4834,
+                "lufs": -14.75,
+                "truth": {
+                    "detune_cents": 18.0,
+                    "tempo_ratio": 1.06,
+                    "gain_db": -4.0,
+                    "entry_ms": 160.0,
+                    "room": "quiet_room",
+                    "snr_db": 22.0
+                }
+            }
+        ]
+    },
+    {
+        "key": "lesson:descending",
+        "title": "Descending line",
+        "mode": "lesson",
+        "summary": "alto teacher, soprano student; student +18 cents, 1.060x tempo, -4.0 dB, 160 ms late, quiet_room at 22 dB SNR",
+        "sample_rate": 22050,
+        "truth": {
+            "material": "descending",
+            "written_notes": [
+                "C5",
+                "B4",
+                "A4",
+                "G4",
+                "F4",
+                "E4",
+                "D4",
+                "C4"
+            ],
+            "detune_cents": 18.0,
+            "tempo_ratio": 1.06,
+            "gain_db": -4.0,
+            "entry_ms": 160.0
+        },
+        "parts": [
+            {
+                "name": "Teacher",
+                "role": "teacher",
+                "profile": "alto",
+                "duration_ms": 4000.0,
+                "peak": 0.7364,
+                "lufs": -11.66,
+                "truth": {
+                    "detune_cents": 0.0,
+                    "tempo_ratio": 1.0,
+                    "gain_db": 0.0,
+                    "entry_ms": 0.0,
+                    "room": "quiet_room",
+                    "snr_db": 26.0
+                }
+            },
+            {
+                "name": "Student",
+                "role": "student",
+                "profile": "soprano",
+                "duration_ms": 3951.7,
+                "peak": 0.4751,
+                "lufs": -15.27,
+                "truth": {
+                    "detune_cents": 18.0,
+                    "tempo_ratio": 1.06,
+                    "gain_db": -4.0,
+                    "entry_ms": 160.0,
+                    "room": "quiet_room",
+                    "snr_db": 22.0
+                }
+            }
+        ]
+    },
+    {
+        "key": "duet:unison",
+        "title": "Two singers, one line",
+        "mode": "duet",
+        "summary": "soprano and tenor in unison; second singer 180 ms late at 1.050x and -6.0 dB, laptop at 22 dB SNR",
+        "sample_rate": 22050,
+        "truth": {
+            "material": "unison",
+            "lag_ms": 180.0,
+            "tempo_ratio": 1.05,
+            "gain_db": -6.0,
+            "upper_notes": [
+                "C4",
+                "D4",
+                "E4",
+                "F4",
+                "E4",
+                "D4",
+                "C4",
+                "C4"
+            ],
+            "lower_notes": [
+                "C4",
+                "D4",
+                "E4",
+                "F4",
+                "E4",
+                "D4",
+                "C4",
+                "C4"
+            ]
+        },
+        "parts": [
+            {
+                "name": "Singer A",
+                "role": "singer",
+                "profile": "soprano",
+                "duration_ms": 4440.0,
+                "peak": 0.7507,
+                "lufs": -12.53,
+                "truth": {
+                    "lag_ms": 0.0,
+                    "tempo_ratio": 1.0,
+                    "gain_db": 0.0
+                }
+            },
+            {
+                "name": "Singer B",
+                "role": "singer",
+                "profile": "tenor",
+                "duration_ms": 4421.9,
+                "peak": 0.3773,
+                "lufs": -18.82,
+                "truth": {
+                    "lag_ms": 180.0,
+                    "tempo_ratio": 1.05,
+                    "gain_db": -6.0
+                }
+            }
+        ]
+    },
+    {
+        "key": "duet:thirds",
+        "title": "Two singers in thirds",
+        "mode": "duet",
+        "summary": "soprano and tenor in thirds; second singer 180 ms late at 1.050x and -6.0 dB, laptop at 22 dB SNR",
+        "sample_rate": 22050,
+        "truth": {
+            "material": "thirds",
+            "lag_ms": 180.0,
+            "tempo_ratio": 1.05,
+            "gain_db": -6.0,
+            "upper_notes": [
+                "E4",
+                "F4",
+                "G4",
+                "A4",
+                "G4",
+                "F4",
+                "E4",
+                "E4"
+            ],
+            "lower_notes": [
+                "C4",
+                "D4",
+                "E4",
+                "F4",
+                "E4",
+                "D4",
+                "C4",
+                "C4"
+            ]
+        },
+        "parts": [
+            {
+                "name": "Singer A",
+                "role": "singer",
+                "profile": "soprano",
+                "duration_ms": 4440.0,
+                "peak": 0.7684,
+                "lufs": -10.46,
+                "truth": {
+                    "lag_ms": 0.0,
+                    "tempo_ratio": 1.0,
+                    "gain_db": 0.0
+                }
+            },
+            {
+                "name": "Singer B",
+                "role": "singer",
+                "profile": "tenor",
+                "duration_ms": 4421.9,
+                "peak": 0.3773,
+                "lufs": -18.82,
+                "truth": {
+                    "lag_ms": 180.0,
+                    "tempo_ratio": 1.05,
+                    "gain_db": -6.0
+                }
+            }
+        ]
+    },
+    {
+        "key": "duet:octaves",
+        "title": "Soprano and tenor, an octave apart",
+        "mode": "duet",
+        "summary": "soprano and tenor in octaves; second singer 180 ms late at 1.050x and -6.0 dB, laptop at 22 dB SNR",
+        "sample_rate": 22050,
+        "truth": {
+            "material": "octaves",
+            "lag_ms": 180.0,
+            "tempo_ratio": 1.05,
+            "gain_db": -6.0,
+            "upper_notes": [
+                "C4",
+                "D4",
+                "E4",
+                "F4",
+                "E4",
+                "D4",
+                "C4",
+                "C4"
+            ],
+            "lower_notes": [
+                "C3",
+                "D3",
+                "E3",
+                "F3",
+                "E3",
+                "D3",
+                "C3",
+                "C3"
+            ]
+        },
+        "parts": [
+            {
+                "name": "Singer A",
+                "role": "singer",
+                "profile": "soprano",
+                "duration_ms": 4440.0,
+                "peak": 0.7507,
+                "lufs": -12.53,
+                "truth": {
+                    "lag_ms": 0.0,
+                    "tempo_ratio": 1.0,
+                    "gain_db": 0.0
+                }
+            },
+            {
+                "name": "Singer B",
+                "role": "singer",
+                "profile": "tenor",
+                "duration_ms": 4421.9,
+                "peak": 0.3732,
+                "lufs": -20.77,
+                "truth": {
+                    "lag_ms": 180.0,
+                    "tempo_ratio": 1.05,
+                    "gain_db": -6.0
+                }
+            }
+        ]
+    },
+    {
+        "key": "concert:band",
+        "title": "Five-piece band, lead vocal",
+        "mode": "concert",
+        "summary": "5 performers, lead plus 4; heard-the-lead delays 92-118 ms, 95 in the audience, laptop at 20 dB SNR",
+        "sample_rate": 22050,
+        "truth": {
+            "material": "band",
+            "lead": "Lead",
+            "delay_ms": {
+                "Lead": 0.0,
+                "Harmony": 104.0,
+                "Tenor": 92.0,
+                "Baritone": 118.0,
+                "Bass": 97.0
+            },
+            "lead_delay_ms": 100.0,
+            "audience": 95
+        },
+        "parts": [
+            {
+                "name": "Lead",
+                "role": "lead",
+                "profile": "alto",
+                "duration_ms": 5318.0,
+                "peak": 0.7758,
+                "lufs": -11.68,
+                "truth": {
+                    "delay_ms": 0.0,
+                    "gain_db": 0.0,
+                    "detune_cents": 0.0
+                }
+            },
+            {
+                "name": "Harmony",
+                "role": "performer",
+                "profile": "soprano",
+                "duration_ms": 5318.0,
+                "peak": 0.5915,
+                "lufs": -13.63,
+                "truth": {
+                    "delay_ms": 104.0,
+                    "gain_db": -2.5,
+                    "detune_cents": 7.0
+                }
+            },
+            {
+                "name": "Tenor",
+                "role": "performer",
+                "profile": "tenor",
+                "duration_ms": 5318.0,
+                "peak": 0.6727,
+                "lufs": -15.35,
+                "truth": {
+                    "delay_ms": 92.0,
+                    "gain_db": -1.0,
+                    "detune_cents": -9.0
+                }
+            },
+            {
+                "name": "Baritone",
+                "role": "performer",
+                "profile": "baritone",
+                "duration_ms": 5318.0,
+                "peak": 0.5156,
+                "lufs": -18.01,
+                "truth": {
+                    "delay_ms": 118.0,
+                    "gain_db": -3.5,
+                    "detune_cents": 4.0
+                }
+            },
+            {
+                "name": "Bass",
+                "role": "performer",
+                "profile": "bass",
+                "duration_ms": 5318.0,
+                "peak": 0.918,
+                "lufs": -14.26,
+                "truth": {
+                    "delay_ms": 97.0,
+                    "gain_db": 1.5,
+                    "detune_cents": -5.0
+                }
+            }
+        ]
+    },
+    {
+        "key": "concert:chorale",
+        "title": "Five-part chorale",
+        "mode": "concert",
+        "summary": "5 performers, lead plus 4; heard-the-lead delays 86-117 ms, 95 in the audience, laptop at 20 dB SNR",
+        "sample_rate": 22050,
+        "truth": {
+            "material": "chorale",
+            "lead": "Sopran1",
+            "delay_ms": {
+                "Sopran1": 0.0,
+                "Sopran2": 107.35,
+                "Alto": 107.3,
+                "Tenor": 117.3,
+                "Bass": 85.9
+            },
+            "lead_delay_ms": 100.0,
+            "audience": 95
+        },
+        "parts": [
+            {
+                "name": "Sopran1",
+                "role": "lead",
+                "profile": "soprano",
+                "duration_ms": 5317.3,
+                "peak": 0.7837,
+                "lufs": -10.57,
+                "truth": {
+                    "delay_ms": 0.0,
+                    "gain_db": 0.0,
+                    "detune_cents": 0.0
+                }
+            },
+            {
+                "name": "Sopran2",
+                "role": "performer",
+                "profile": "alto",
+                "duration_ms": 5317.3,
+                "peak": 0.7674,
+                "lufs": -10.71,
+                "truth": {
+                    "delay_ms": 107.35,
+                    "gain_db": -0.35,
+                    "detune_cents": -6.9
+                }
+            },
+            {
+                "name": "Alto",
+                "role": "performer",
+                "profile": "alto",
+                "duration_ms": 5317.3,
+                "peak": 0.6367,
+                "lufs": -13.38,
+                "truth": {
+                    "delay_ms": 107.3,
+                    "gain_db": -1.72,
+                    "detune_cents": -0.8
+                }
+            },
+            {
+                "name": "Tenor",
+                "role": "performer",
+                "profile": "tenor",
+                "duration_ms": 5317.3,
+                "peak": 0.5609,
+                "lufs": -16.49,
+                "truth": {
+                    "delay_ms": 117.3,
+                    "gain_db": -2.74,
+                    "detune_cents": -5.06
+                }
+            },
+            {
+                "name": "Bass",
+                "role": "performer",
+                "profile": "bass",
+                "duration_ms": 5317.3,
+                "peak": 0.8027,
+                "lufs": -14.79,
+                "truth": {
+                    "delay_ms": 85.9,
+                    "gain_db": 0.39,
+                    "detune_cents": 3.19
+                }
+            }
+        ]
+    }
+]

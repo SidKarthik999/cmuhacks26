@@ -426,7 +426,7 @@ def remix(body: RemixBody = Body(...)) -> Dict[str, Any]:
     result: concert.ConcertResult = entry[1]
     started = time.time()
     try:
-        mixed = concert.remix(result, body.gains_db)
+        mixed, trim_db = concert.remix(result, body.gains_db)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     elapsed = (time.time() - started) * 1000.0
@@ -442,6 +442,9 @@ def remix(body: RemixBody = Body(...)) -> Dict[str, Any]:
             "wave": dsp.downsample_envelope(mixed, 900),
             "lufs": round(dsp.loudness_lufs(mixed, SR), 2),
             "peak": round(float(np.max(np.abs(mixed))) if mixed.size else 0.0, 4),
+            # Reported so the interface can explain why pushing every fader up
+            # does not make the mix proportionally louder.
+            "trim_db": round(trim_db, 2),
         },
     }
 

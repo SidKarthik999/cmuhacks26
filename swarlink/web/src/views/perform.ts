@@ -124,7 +124,14 @@ export function performPanel(result: ConcertResult): { el: HTMLElement; dispose:
     mixLufs = remix.mix.lufs;
     mixUrl = audioUrl(remix.audio.mix);
     mixLufsEl.textContent = `${mixLufs.toFixed(2)} LUFS`;
-    remixState.textContent = `re-mixed in ${remix.elapsed_ms.toFixed(0)} ms`;
+    // Say so when the peak guard engaged. Otherwise pushing every fader up
+    // and watching the loudness move by half of it looks like a broken mixer
+    // rather than a limiter doing its job.
+    const trim = remix.mix.trim_db ?? 0;
+    remixState.textContent =
+      trim < -0.05
+        ? `re-mixed in ${remix.elapsed_ms.toFixed(0)} ms — peak guard took ${Math.abs(trim).toFixed(1)} dB off the sum`
+        : `re-mixed in ${remix.elapsed_ms.toFixed(0)} ms`;
     repaint(mixCanvas);
 
     const fresh = player({

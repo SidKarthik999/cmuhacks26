@@ -150,9 +150,22 @@ export function drawContour(
   stroke(ctx, contour, x, y, opts.color ?? token("--cold-100"), 1.8, 1);
 
   hairline(ctx, pad.l, height - pad.b, width - pad.r, height - pad.b, token("--rule"));
+  // Ticks on the second, so the axis reads as time rather than as one stray
+  // number in the corner. The last one carries the unit.
+  const secs = Math.floor(duration / 1000);
+  const stepS = secs > 8 ? 2 : 1;
+  for (let s = 0; s <= secs; s += stepS) {
+    const tx = x(s * 1000);
+    hairline(ctx, tx, height - pad.b, tx, height - pad.b + 3, token("--rule-strong"));
+    label(ctx, s === 0 ? "0" : `${s}`, tx, height - pad.b + 8, {
+      align: "center",
+      size: 8,
+    });
+  }
   label(ctx, `${(duration / 1000).toFixed(1)}s`, width - pad.r, height - pad.b + 8, {
     align: "right",
     size: 8,
+    color: token("--fg-200"),
   });
 }
 

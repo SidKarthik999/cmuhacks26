@@ -240,7 +240,10 @@ export interface RemixResult {
   elapsed_ms: number;
   gains_db: number[];
   audio: { mix: string };
-  mix: { wave: number[]; lufs: number; peak: number };
+  // trim_db is 0 unless the sum would have clipped and the peak guard pulled
+  // the whole mix down. It is the difference between the fader move asked for
+  // and the loudness change delivered.
+  mix: { wave: number[]; lufs: number; peak: number; trim_db: number };
 }
 
 export interface ScenePart {

@@ -115,6 +115,7 @@ def scan_offset_tempo(
     tempo_range: Tuple[float, float] = TEMPO_RANGE,
     tempo_steps: int = 41,
     fine_steps: int = 25,
+    min_offset_ms: Optional[float] = None,
 ) -> Tuple[float, float, float]:
     """Joint (offset_ms, tempo_ratio, confidence) search.
 
@@ -134,7 +135,7 @@ def scan_offset_tempo(
     got = offset_tempo_candidates(
         ref, other, sr=sr, max_offset_ms=max_offset_ms,
         tempo_range=tempo_range, tempo_steps=tempo_steps,
-        fine_steps=fine_steps, top_k=1,
+        fine_steps=fine_steps, top_k=1, min_offset_ms=min_offset_ms,
     )
     return got[0]
 
@@ -149,7 +150,11 @@ def _onset_envs(
 
 
 def _best_lag_over(
-    env_a: np.ndarray, env_b: np.ndarray, ratios: np.ndarray, max_lag: int
+    env_a: np.ndarray,
+    env_b: np.ndarray,
+    ratios: np.ndarray,
+    max_lag: int,
+    min_lag: Optional[int] = None,
 ) -> Tuple[float, float, float]:
     """Best (offset_ms, tempo, confidence) over a set of candidate tempos."""
     found = (0.0, 1.0, -1.0)
@@ -158,7 +163,7 @@ def _best_lag_over(
         warped = np.interp(
             np.linspace(0, env_b.size - 1, n), np.arange(env_b.size), env_b
         )
-        lag, conf = _xcorr_peak(env_a, warped, max_lag)
+        lag, conf = _xcorr_peak(env_a, warped, max_lag, min_lag)
         if conf > found[2]:
             found = (lag * ONSET_HOP_MS, float(ratio), conf)
     return found
@@ -181,6 +186,7 @@ def offset_tempo_candidates(
     tempo_steps: int = 41,
     fine_steps: int = 25,
     top_k: int = 6,
+    min_offset_ms: Optional[float] = None,
 ) -> List[Tuple[float, float, float]]:
     """Several plausible (offset, tempo, confidence) hypotheses, best first.
 
@@ -203,12 +209,22 @@ def offset_tempo_candidates(
     was the scan's *fourth* choice, ranked below three wrong answers, and its
     DTW path then cost eight times less than theirs. The scan's ranking is
     close to worthless on this material; its candidate set is not.
+
+    `min_offset_ms` is the other half of what a caller can know. On repetitive
+    material the correlation peak is ambiguous modulo the beat, and a bounded
+    *symmetric* search still has to choose between "105 ms late" and "395 ms
+    early" -- two answers the signal cannot separate but the situation can. A
+    concert performer entering on a voice that reached them over a network is
+    not early, so the concert caller says so and the alias disappears. Left
+    unset the search stays symmetric, which is right for a lesson: a student
+    may well come in ahead of the teacher's take.
     """
     env_a, env_b = _onset_envs(ref, other, sr)
     if env_a.size < 4 or env_b.size < 4:
         return [(0.0, 1.0, 0.0)]
 
     max_lag = int(max_offset_ms / ONSET_HOP_MS)
+    min_lag = None if min_offset_ms is None else int(min_offset_ms / ONSET_HOP_MS)
     coarse = np.linspace(tempo_range[0], tempo_range[1], tempo_steps)
     found: List[Tuple[float, float, float]] = []
     for ratio in coarse:
@@ -216,7 +232,7 @@ def offset_tempo_candidates(
         warped = np.interp(
             np.linspace(0, env_b.size - 1, n), np.arange(env_b.size), env_b
         )
-        lag, conf = _xcorr_peak(env_a, warped, max_lag)
+        lag, conf = _xcorr_peak(env_a, warped, max_lag, min_lag)
         found.append((lag * ONSET_HOP_MS, float(ratio), conf))
 
     found.sort(key=lambda c: -c[2])
@@ -244,7 +260,9 @@ def offset_tempo_candidates(
     for offset_ms, ratio, conf in picked:
         lo = max(ratio - cell, tempo_range[0] * 0.98)
         hi = min(ratio + cell, tempo_range[1] * 1.02)
-        fine = _best_lag_over(env_a, env_b, np.linspace(lo, hi, fine_steps), max_lag)
+        fine = _best_lag_over(
+            env_a, env_b, np.linspace(lo, hi, fine_steps), max_lag, min_lag
+        )
         refined.append(fine if fine[2] >= conf else (offset_ms, ratio, conf))
     return refined
 
@@ -512,6 +530,7 @@ def align(
     band_ms: float = 260.0,
     max_offset_ms: float = MAX_OFFSET_MS,
     tempo_range: Tuple[float, float] = TEMPO_RANGE,
+    min_offset_ms: Optional[float] = None,
 ) -> Alignment:
     """Full alignment: global (offset, tempo) then a banded DTW refinement.
 
@@ -539,6 +558,7 @@ def align(
             got = align(
                 ref, other, sr=sr, feature=candidate, band_ms=band_ms,
                 max_offset_ms=max_offset_ms, tempo_range=tempo_range,
+                min_offset_ms=min_offset_ms,
             )
             got.method = f"{got.method}:{candidate}"
             if best is None or got.confidence > best.confidence:
@@ -546,7 +566,8 @@ def align(
         return best if best is not None else Alignment(0.0, 1.0, 0.0, "none")
 
     candidates = offset_tempo_candidates(
-        ref, other, sr=sr, max_offset_ms=max_offset_ms, tempo_range=tempo_range
+        ref, other, sr=sr, max_offset_ms=max_offset_ms, tempo_range=tempo_range,
+        min_offset_ms=min_offset_ms,
     )
     offset_ms, tempo, conf = candidates[0]
 

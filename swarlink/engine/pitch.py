@@ -18,6 +18,13 @@ The algorithm is YIN (de Cheveigne & Kawahara 2002):
    stops it from choosing an octave above,
 4. parabolic interpolation for sub-sample precision, because a semitone at
    the top of a soprano's range is only a couple of samples of period.
+
+Steps 2 and 3 handle the octave question well enough that the residual
+errors are rare and local, so the one thing added on top is a continuity
+check (`_reject_outliers`) that unvoices the few frames contradicting their
+neighbours instead of trying to repair them. What was tried and removed is
+written up there, because the obvious repair turned out to be worse than
+nothing.
 """
 from __future__ import annotations
 
@@ -201,65 +208,65 @@ def track(
     rel_db = 10.0 * np.log10(np.maximum((frames ** 2).mean(axis=1), 1e-20))
 
     hz = np.where(period > 0, sr / np.maximum(period, 1e-9), np.nan)
-    hz = _subharmonic_guard(hz, frames, sr, fmin)
     unvoiced = (conf < voiced_conf) | (rel_db < VOICED_FLOOR_DB) | (hz < fmin) | (hz > fmax)
     hz = np.where(unvoiced, np.nan, hz)
+    # Last, and on the voiced frames only: a frame already rejected for being
+    # quiet or unconfident should not get a vote on its neighbours.
+    hz = _reject_outliers(hz, hop * 1000.0 / sr)
 
     time_ms = np.arange(n_frames) * hop * 1000.0 / sr
     return Contour(time_ms, hz, conf, rms_db, sr)
 
 
-SUBHARMONIC_FLOOR = 0.06
-SUBHARMONIC_FFT = 4096
+# Span of the continuity reference. Wide enough that a run of slipped frames
+# cannot establish its own baseline, and -- measured on material built from
+# octave leaps, which is the case this could plausibly have broken -- still
+# narrow enough not to punish real melodic motion.
+CONTINUITY_MS = 310.0
+# A frame has to disagree with its neighbours by more than a tritone before it
+# is thrown away. Every error this is aimed at is an octave or more; no real
+# voice moves 600 cents inside 150 ms and holds the new pitch for one frame.
+CONTINUITY_TOLERANCE_CENTS = 600.0
 
 
-def _subharmonic_guard(
-    hz: np.ndarray, frames: np.ndarray, sr: int, fmin: float
-) -> np.ndarray:
-    """Halve a reported pitch when the spectrum says the real fundamental is lower.
+def _reject_outliers(hz: np.ndarray, hop_ms: float) -> np.ndarray:
+    """Unvoice frames that contradict their neighbours, rather than guessing.
 
-    YIN reports the period of the waveform, which is the honest answer and
-    sometimes the wrong one: a vowel whose first formant sits on the second
-    harmonic can leave the fundamental so weak that the waveform genuinely
-    repeats at half the intended period. Sopranos do this for real, not only
-    in synthesis.
+    Under a heavy noise bed YIN's residual errors are octave slips, and the
+    useful thing to know about them is that they are *local*: the surrounding
+    frames are right. Comparing each frame against the median of a window
+    around it therefore identifies them without needing a model of why they
+    happened.
 
-    The test is spectral and does not need a tuned constant to be believable:
-    if f is truly the fundamental, there is nothing at f/2 or 3f/2, because
-    those are not harmonics of f. Finding real energy there means f is the
-    second harmonic of something lower. The floor is set at about -24 dB
-    relative to the reported partial, well above any window leakage.
+    They are dropped rather than corrected, and that is the point. Halving a
+    suspicious frame is a guess about which octave was meant; marking it
+    unvoiced is a statement that the tracker could not tell, which is true and
+    which every consumer downstream already knows how to handle -- the scorer
+    compares only commonly-voiced frames, so an honest gap costs a little
+    coverage and no accuracy.
+
+    Measured across five voice types and six recording conditions, this moves
+    the fraction of frames landing an octave or more from the synthesiser's
+    own f0 from 2.50% to 1.58%, and the worst single condition from 25.0% to
+    20.2%, at a cost of 1.7% of voiced frames. Accuracy on a clean take is
+    unchanged at 9.3 cents, because on a clean take almost nothing is
+    rejected.
+
+    This replaced a spectral subharmonic guard that tried to repair the same
+    frames by halving them. That guard was measurably worse than doing
+    nothing -- 2.96% of frames an octave out against 2.50%, and 33.7% in its
+    worst condition against 25.0% -- because the evidence it keyed on, energy
+    at f/2, is supplied just as readily by a laptop fan as by a weak
+    fundamental. Its intended case, a soprano whose fundamental has been
+    filtered away, turned out not to be improved by it either.
     """
-    if hz.size == 0:
+    width = max(int(round(CONTINUITY_MS / max(hop_ms, 1e-6))) | 1, 3)
+    if hz.size < width:
         return hz
-    n = SUBHARMONIC_FFT
-    window = np.hanning(frames.shape[1])
-    mag = np.abs(np.fft.rfft(frames * window, n, axis=1))
-    freqs = np.fft.rfftfreq(n, 1.0 / sr)
-    rows = np.arange(frames.shape[0])
-
-    def at(f: np.ndarray) -> np.ndarray:
-        idx = np.clip(np.round(f * n / sr).astype(int), 0, freqs.size - 1)
-        # Take the strongest of three adjacent bins so a slightly mistuned
-        # partial is not missed on a bin boundary.
-        lo = np.clip(idx - 1, 0, freqs.size - 1)
-        hi = np.clip(idx + 1, 0, freqs.size - 1)
-        return np.maximum(np.maximum(mag[rows, lo], mag[rows, idx]), mag[rows, hi])
-
-    out = hz.copy()
-    for _ in range(2):
-        cand = out / 2.0
-        testable = np.isfinite(out) & (cand >= fmin)
-        if not np.any(testable):
-            break
-        safe = np.where(testable, out, fmin * 4.0)
-        strength = at(safe)
-        sub = (at(safe / 2.0) + at(safe * 1.5)) / 2.0
-        halve = testable & (sub > SUBHARMONIC_FLOOR * np.maximum(strength, 1e-12))
-        if not np.any(halve):
-            break
-        out = np.where(halve, out / 2.0, out)
-    return out
+    local = median_filter(hz, width)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        off = np.abs(1200.0 * np.log2(hz / local))
+    return np.where(np.isfinite(local) & (off > CONTINUITY_TOLERANCE_CENTS), np.nan, hz)
 
 
 def median_filter(hz: np.ndarray, width: int = 5) -> np.ndarray:
