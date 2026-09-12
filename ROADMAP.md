@@ -340,4 +340,73 @@ Each mode owner is responsible for the end-to-end wiring and testing of their mo
 
 ---
 
+# Part 4: Project structure & integration contracts
+
+**Are the tasks independently implementable?** Not in the sense of "zero dependencies" — B's Task 2 needs a raw audio track shape from A, C's Task 3 needs singing events from B, C's Task 5 needs the pitch-tracking module from B, and so on. They *are* independently implementable in the sense that matters for parallel work: every cross-track dependency is mediated by a **contract** (a schema or function signature), not by waiting on someone else's actual code. Once a contract is agreed and stubbed, both sides build against the stub and swap in the real implementation later without changing their own code. The structure below exists to make that swap-in safe and to make it obvious when a contract has drifted.
+
+## Repo layout
+
+```
+cmuhacks26/
+├── ROADMAP.md
+├── shared/                          # the ONLY place cross-track contracts are defined — nothing else may redefine these types
+│   ├── schemas/
+│   │   ├── signal.schema.json           # Task 3 — Person C owns; A & B are consumers
+│   │   ├── singing_event.schema.json    # Task 2 — Person B owns; C is a consumer
+│   │   ├── pitch_contour.schema.json    # Task 8 — Person B owns; C (Task 5) is a consumer
+│   │   ├── alignment_result.schema.json # Task 4/6 — Person C owns; A (routing/mix), B (mode owners) consume
+│   │   ├── comparison_result.schema.json# Task 5 — Person C owns; A/UI consumes for display
+│   │   ├── room_state.schema.json       # Task 1/mode infra — Person A owns; B & C consume for role/mode lookups
+│   │   └── audio_track.schema.json      # Task 1 — Person A owns; B & C consume as their pipeline's raw input
+│   ├── bindings/                    # generated or hand-written typed bindings derived FROM the schemas above (TS for platform/, Python for the audio backend) — never hand-edit a binding without regenerating from its schema
+│   └── mocks/                       # fixture data + stub functions for every schema above, so no one is ever blocked waiting on someone else's real implementation
+│       ├── mock_audio_track.*
+│       ├── mock_singing_events.*
+│       ├── mock_signal.*
+│       └── mock_pitch_contour.*
+│
+├── platform/                        # Person A — Task 1, Task 9, mode/role infra, Performance mode
+│   ├── src/                         # WebRTC/SFU room logic, UI
+│   ├── api/                         # the one real network boundary in this project — what platform/ exposes to the audio backend (see "The one real boundary" below)
+│   └── tests/
+│
+├── audio-intelligence/               # Person B — Task 2, 7, 8, Practice mode
+│   ├── detection/                    # Task 2
+│   ├── cleaning/                     # Task 7
+│   ├── notes/                        # Task 8, including the shared pitch-tracking module
+│   └── tests/
+│
+├── signal-processing/                # Person C — Task 3, 4, 5, 6, Teach mode
+│   ├── storage/                      # Task 3, owns Signal schema
+│   ├── sync/                         # Task 4, 6
+│   ├── compare/                      # Task 5
+│   └── tests/
+│
+├── modes/                             # orchestration layer, one owner per subfolder per Part 3
+│   ├── teach/                         # Person C
+│   ├── practice/                      # Person B
+│   └── performance/                   # Person A
+│
+└── docs/
+    └── integration-contracts.md       # human-readable restatement of every schema in shared/schemas — what it means, who owns it, who consumes it, and the change-review rule below
+```
+
+`audio-intelligence/` and `signal-processing/` operate on the same live audio pipeline in sequence (detect → extract/store → clean → sync/compare/notes) and will likely run inside one backend process for latency reasons — keep them as separate packages/modules with a clear function-call boundary between them, not separate network services. The **one real network/language boundary** in this project is between `platform/` (likely JS/TS, WebRTC-facing) and the combined audio backend (likely Python, ML-facing) — that boundary needs the most rigor, since it's the only place a schema mismatch can't be caught by a type checker on both sides automatically.
+
+## The one real boundary: platform ↔ audio backend
+
+Document this explicitly in `docs/integration-contracts.md` before either side is far along:
+- How raw per-participant audio gets from `platform/` to the audio backend (e.g. a WebSocket streaming raw PCM chunks, keyed by `participant_id` + `room_id`).
+- How processed results get back (note events for display, comparison scores, the Practice/Performance mixed feed) — likely a WebSocket channel per room, keyed by the same IDs, carrying JSON that matches `comparison_result.schema.json` / a note-event schema.
+- Both directions should have a minimal example payload committed in `shared/mocks/`, so each side can build against it without the other side running.
+
+## Rules that prevent incompatibility
+
+1. **Single source of truth.** A type/shape used across a track boundary is defined once, in `shared/schemas/`, and nowhere else. If you find yourself hand-writing a matching struct/interface in your own track's code, import/generate it from the schema instead.
+2. **Owner defines, consumers review.** Each schema has one owner (noted above), but changing a schema that others already consume requires a heads-up/review from every consumer before merging — not just a unilateral edit. A breaking change bumps a `version` field on the schema.
+3. **Stub before you block.** Whoever owns a schema commits a mock/fixture for it in `shared/mocks/` as soon as the shape is agreed — before the real implementation exists. Downstream consumers build against the mock immediately; swapping the mock for the real implementation later should require no code changes on the consumer's side, only a wiring change.
+4. **Integration tests live in `modes/`, run against real implementations.** Per-track unit tests (in each track's own `tests/`) can and should use mocks. But `modes/` — where all three tracks actually meet — should have integration tests that exercise the real implementations together as they land, to catch contract drift that unit tests against mocks would miss.
+
+---
+
 *Roadmap updated with the three-mode composition layer (Teach, Practice, Performance) and the 3-person team assignment. All previously flagged open questions are resolved (max participants, tempo-drift/DTW requirement, cleaning-automatic behavior, scoring formula, overlap handling, Practice mode single-singer behavior, Performance mode dropout handling). No open questions remain as of this revision — future design changes should be added as new `> **Open question:**` callouts as they arise.*
