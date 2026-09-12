@@ -1,7 +1,7 @@
 """Stub for Person A Task 9 (multi-feed audio routing).
 
 Practice mode delivers an *additional* enhanced feed alongside the raw call.
-This in-process router stands in until platform/api exposes real routing.
+This in-process router stands in until Person A lands Task 9 in platform/.
 """
 from __future__ import annotations
 
