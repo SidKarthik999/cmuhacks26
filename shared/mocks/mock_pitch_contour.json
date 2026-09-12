@@ -1,9 +1,0 @@
-{
-  "sample_rate": 44100,
-  "hop_ms": 10,
-  "points": [
-    { "time_ms": 0, "pitch_hz": 440.0, "confidence": 0.95 },
-    { "time_ms": 10, "pitch_hz": 440.2, "confidence": 0.94 },
-    { "time_ms": 20, "pitch_hz": null, "confidence": 0.1 }
-  ]
-}
