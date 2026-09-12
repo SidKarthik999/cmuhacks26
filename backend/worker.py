@@ -26,6 +26,7 @@ import asyncio
 import base64
 import json
 import sys
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -42,7 +43,10 @@ sys.path.insert(0, str(_ROOT / "modes"))
 from audio_io import read_wav, write_wav_bytes  # noqa: E402
 from cleaning import StreamingCleaner  # noqa: E402
 from sync import align_audio, render_aligned_playback  # noqa: E402
+from storage import SignalStore  # noqa: E402
 from practice.pipeline import PracticeSession  # noqa: E402
+
+DEFAULT_SIGNAL_STORE_ROOT = _ROOT / "data" / "signals"
 
 WINDOW_SECONDS = 3.0
 MIX_CROSSFADE_MS = 15.0
@@ -206,6 +210,31 @@ class PerformanceGroupSession:
         return new_output if new_output.size else None
 
 
+@dataclass
+class TakeRecorder:
+    """Accumulates each Practice-mode participant's full, untrimmed cleaned
+    audio for one "take" (from a start_recording to the matching
+    stop_recording), so it can be batch-aligned + mixed at full quality on
+    stop -- unlike the live streaming path, which only ever keeps a short
+    trailing window and can't produce a complete recording of the take."""
+
+    recording_id: str
+    sample_rate: int
+    buffers: Dict[str, List[np.ndarray]] = field(default_factory=dict)
+
+    def append(self, participant_id: str, chunk: Optional[np.ndarray]) -> None:
+        if chunk is None or chunk.size == 0:
+            return
+        self.buffers.setdefault(participant_id, []).append(chunk.copy())
+
+    def finalize(self) -> Dict[str, np.ndarray]:
+        return {
+            pid: np.concatenate(chunks)
+            for pid, chunks in self.buffers.items()
+            if chunks
+        }
+
+
 class BackendWorker:
     def __init__(self, ws_base: str, room_id: str, mode: str, store: Optional[Any] = None):
         self.ws_base = ws_base
@@ -215,17 +244,105 @@ class BackendWorker:
         self._practice: Optional[PracticeSession] = None
         self._performance: Optional[PerformanceGroupSession] = None
         self._practice_participants: List[str] = []
+        self._recorder: Optional[TakeRecorder] = None
 
     async def run(self) -> None:
         url = f"{self.ws_base}/ws/audio?room_id={self.room_id}&role=processor"
         async with websockets.connect(url) as ws:
             async for raw in ws:
                 msg = json.loads(raw)
-                if msg.get("type") != "audio_chunk":
+                msg_type = msg.get("type")
+                if msg_type == "audio_chunk":
+                    reply = self._handle_audio_chunk(msg)
+                elif msg_type == "start_recording":
+                    reply = self._handle_start_recording(msg)
+                elif msg_type == "stop_recording":
+                    reply = self._handle_stop_recording(msg)
+                else:
                     continue
-                reply = self._handle_audio_chunk(msg)
                 if reply is not None:
                     await ws.send(reply)
+
+    def _ensure_store(self) -> Any:
+        if self.store is None:
+            self.store = SignalStore(root=DEFAULT_SIGNAL_STORE_ROOT)
+        return self.store
+
+    def _handle_start_recording(self, msg: Dict[str, Any]) -> Optional[str]:
+        if self.mode != "practice":
+            return json.dumps({
+                "type": "recording_failed", "room_id": self.room_id,
+                "reason": f"recording is only supported in practice mode, not {self.mode}",
+            })
+        sample_rate = self._practice.sample_rate if self._practice else 48000
+        self._recorder = TakeRecorder(recording_id=f"rec_{uuid.uuid4()}", sample_rate=sample_rate)
+        return json.dumps({
+            "type": "recording_started",
+            "room_id": self.room_id,
+            "recording_id": self._recorder.recording_id,
+        })
+
+    def _handle_stop_recording(self, msg: Dict[str, Any]) -> Optional[str]:
+        recorder = self._recorder
+        self._recorder = None
+        if recorder is None:
+            return None
+
+        buffers = recorder.finalize()
+        participant_ids = list(buffers.keys())
+        if len(participant_ids) < 2:
+            return json.dumps({
+                "type": "recording_failed",
+                "room_id": self.room_id,
+                "recording_id": recorder.recording_id,
+                "reason": "need both participants singing during the take to produce a synced recording",
+            })
+
+        pid_a, pid_b = participant_ids[0], participant_ids[1]
+        sr = recorder.sample_rate
+        wav_a = write_wav_bytes(buffers[pid_a], sr)
+        wav_b = write_wav_bytes(buffers[pid_b], sr)
+
+        try:
+            warp_path, confidence, hop_ms = align_audio(wav_a, wav_b)
+            playback = render_aligned_playback(wav_a, wav_b, warp_path, hop_ms)
+            mixed_pcm, _ = read_wav(playback.mixed_wav)
+        except ValueError:
+            # One or both takes too short for a chroma frame -- fall back
+            # to a plain unaligned mix rather than dropping the recording.
+            confidence = 0.0
+            n = min(buffers[pid_a].size, buffers[pid_b].size)
+            mixed_pcm = 0.5 * buffers[pid_a][:n] + 0.5 * buffers[pid_b][:n]
+
+        mixed_wav = write_wav_bytes(mixed_pcm, sr)
+        store = self._ensure_store()
+        signal = store.save(
+            participant_id=pid_a,
+            room_id=self.room_id,
+            start_time=0.0,
+            end_time=mixed_pcm.size / sr * 1000.0,
+            sample_rate=sr,
+            audio_bytes=mixed_wav,
+            role="peer",
+            mode="practice",
+            metadata={
+                "kind": "practice_recording",
+                "participant_ids": participant_ids,
+                "alignment_confidence": confidence,
+            },
+        )
+
+        return json.dumps({
+            "type": "recording_ready",
+            "room_id": self.room_id,
+            "recording_id": recorder.recording_id,
+            "signal_id": signal.id,
+            "participant_ids": participant_ids,
+            "duration_ms": mixed_pcm.size / sr * 1000.0,
+            "sample_rate": sr,
+            "format": "pcm_f32",
+            "pcm_base64": base64.b64encode(mixed_pcm.astype("<f4").tobytes()).decode(),
+        })
 
     def _handle_audio_chunk(self, msg: Dict[str, Any]) -> Optional[str]:
         participant_id = msg["participant_id"]
@@ -246,6 +363,8 @@ class BackendWorker:
             if self._practice is None:
                 return None
             result = self._practice.push(participant_id, pcm, timestamp_ms)
+            if self._recorder is not None:
+                self._recorder.append(participant_id, result.get("cleaned_chunk"))
             frame = result.get("feed")
             if frame is None or frame.pcm.size == 0:
                 return None

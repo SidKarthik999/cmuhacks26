@@ -36,6 +36,19 @@ type ProcessingStatus = {
 };
 type RoomWithProcessing = RoomState & { processing?: ProcessingStatus };
 
+/** One finished (or failed) "record a take" result -- Practice mode only.
+ * See platform/api/server.ts's start_recording/stop_recording/
+ * recording_ready handling and backend/worker.py's TakeRecorder. */
+type RecordingMeta = {
+  recording_id: string;
+  signal_id: string | null;
+  participant_ids: string[];
+  duration_ms: number;
+  created_at: number;
+  status: "ready" | "failed";
+  reason?: string;
+};
+
 type Session = {
   room: RoomWithProcessing;
   participant_id: string;
@@ -48,6 +61,8 @@ type Session = {
   feedSocket: WebSocket | null;
   playCtx: AudioContext | null;
   playCursor: Map<string, number>;
+  isRecording: boolean;
+  recordings: RecordingMeta[];
 };
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
@@ -232,6 +247,8 @@ async function enterRoom(
     feedSocket: null,
     playCtx: null,
     playCursor: new Map(),
+    isRecording: false,
+    recordings: [],
   };
 
   call.onAudioTrack(() => renderCall());
@@ -315,16 +332,26 @@ function startFeedPlayback(s: Session): void {
   s.feedSocket = ws;
 }
 
+/** Shared by live feed playback and finished-recording playback. */
+function decodeBase64Pcm(b64: string): Float32Array<ArrayBuffer> {
+  if (!b64) return new Float32Array(new ArrayBuffer(0));
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const view = new Float32Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 4));
+  // Copy into a plain, concretely ArrayBuffer-backed array -- `view`
+  // aliases `bytes.buffer` (typed ArrayBufferLike), which
+  // AudioBuffer.copyToChannel doesn't accept directly.
+  const out = new Float32Array(new ArrayBuffer(view.byteLength));
+  out.set(view);
+  return out;
+}
+
 function playFeedChunk(s: Session, feed: string, msg: Record<string, unknown>): void {
   const ctx = s.playCtx;
   if (!ctx) return;
   if (ctx.state === "suspended") void ctx.resume();
-  const b64 = String(msg.pcm_base64 ?? "");
-  if (!b64) return;
-  const binary = atob(b64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  const samples = new Float32Array(bytes.buffer, bytes.byteOffset, Math.floor(bytes.byteLength / 4));
+  const samples = decodeBase64Pcm(String(msg.pcm_base64 ?? ""));
   if (samples.length === 0) return;
 
   const sampleRate = Number(msg.sample_rate ?? 48000);
@@ -340,6 +367,53 @@ function playFeedChunk(s: Session, feed: string, msg: Record<string, unknown>): 
   const startAt = Math.max(now, cursor);
   src.start(startAt);
   s.playCursor.set(feed, startAt + buffer.duration);
+}
+
+/** Record/stop a Practice-mode take: tells the real backend
+ * (backend/worker.py's TakeRecorder) to start/stop accumulating both
+ * peers' full cleaned audio, batch-align + mix it on stop, and save it as
+ * a real Task 3 Signal. Sent over the same ingest socket audio_chunk
+ * already flows through. */
+function toggleRecording(s: Session): void {
+  if (!s.ingestSocket || s.ingestSocket.readyState !== WebSocket.OPEN) return;
+  const type = s.isRecording ? "stop_recording" : "start_recording";
+  s.ingestSocket.send(JSON.stringify({ type, room_id: s.room.room_id }));
+  s.isRecording = !s.isRecording;
+  renderCall();
+}
+
+async function refreshRecordings(s: Session): Promise<void> {
+  try {
+    const result = await api<{ recordings: RecordingMeta[] }>(
+      `/rooms/${encodeURIComponent(s.room.room_id)}/recordings`,
+    );
+    if (session !== s) return;
+    s.recordings = result.recordings;
+    renderCall();
+  } catch {
+    // transient network hiccup -- next poll will retry
+  }
+}
+
+async function playRecording(s: Session, recording_id: string): Promise<void> {
+  const AudioCtx =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  s.playCtx = s.playCtx ?? new AudioCtx();
+  if (s.playCtx.state === "suspended") await s.playCtx.resume();
+
+  const audio = await api<{ sample_rate: number; format: string; pcm_base64: string }>(
+    `/rooms/${encodeURIComponent(s.room.room_id)}/recordings/${encodeURIComponent(recording_id)}`,
+  );
+  const samples = decodeBase64Pcm(audio.pcm_base64);
+  if (samples.length === 0) return;
+
+  const buffer = s.playCtx.createBuffer(1, samples.length, audio.sample_rate);
+  buffer.copyToChannel(samples, 0);
+  const src = s.playCtx.createBufferSource();
+  src.buffer = buffer;
+  src.connect(s.playCtx.destination);
+  src.start();
 }
 
 /** Human-readable detail line for the processing-status badge -- which
@@ -416,6 +490,44 @@ function renderCall(): void {
     );
   });
 
+  const recordingsSidebar =
+    room.mode === "practice"
+      ? el("aside", { className: "recordings-sidebar" }, [
+          el("h2", {}, ["Record a take"]),
+          el("button", {
+            className: session.isRecording ? "danger" : "primary",
+            type: "button",
+            onClick: () => session && toggleRecording(session),
+          }, [session.isRecording ? "● Stop recording" : "● Record"]),
+          el("div", { className: "recordings-list" }, [
+            session.recordings.length === 0
+              ? el("p", { className: "meta" }, ["No takes recorded yet."])
+              : "",
+            ...session.recordings
+              .slice()
+              .reverse()
+              .map((r) => {
+                if (r.status === "failed") {
+                  return el("div", { className: "recording-row recording-failed" }, [
+                    "⚠ ",
+                    r.reason ?? "recording failed",
+                  ]);
+                }
+                const playBtn = el("button", { className: "icon-button", type: "button", title: "Play this take" }, ["▶"]);
+                playBtn.addEventListener("click", () => {
+                  if (session) void playRecording(session, r.recording_id);
+                });
+                return el("div", { className: "recording-row" }, [
+                  playBtn,
+                  el("span", {}, [
+                    `${(r.duration_ms / 1000).toFixed(1)}s · ${r.participant_ids.join(" + ")}`,
+                  ]),
+                ]);
+              }),
+          ]),
+        ])
+      : "";
+
   app.replaceChildren(
     el("section", { className: "call" }, [
       el("div", { className: "room-code-banner" }, [
@@ -450,21 +562,26 @@ function renderCall(): void {
           onClick: () => void leave(),
         }, ["Leave"]),
       ]),
-      el("div", { className: "grid" }, tiles),
-      el("div", { className: "tracks" }, [
-        el("div", {}, ["Addressable audio tracks (Task 1 output):"]),
-        ...audioTracks.map((t) =>
-          el("div", {}, [
-            el("code", {}, [
-              `${t.track_id} ← ${t.participant_id} (${t.is_remote ? "remote" : "local"}, ${t.sample_rate}Hz ${t.format})`,
-            ]),
+      el("div", { className: "call-layout" }, [
+        el("div", { className: "call-main" }, [
+          el("div", { className: "grid" }, tiles),
+          el("div", { className: "tracks" }, [
+            el("div", {}, ["Addressable audio tracks (Task 1 output):"]),
+            ...audioTracks.map((t) =>
+              el("div", {}, [
+                el("code", {}, [
+                  `${t.track_id} ← ${t.participant_id} (${t.is_remote ? "remote" : "local"}, ${t.sample_rate}Hz ${t.format})`,
+                ]),
+              ]),
+            ),
+            room.mode === "performance"
+              ? el("div", { className: "meta" }, [
+                  `Sync anchor: ${room.performance?.sync_anchor_id ?? "none"} · active performers: ${(room.performance?.active_performer_ids ?? []).join(", ") || "none"}`,
+                ])
+              : "",
           ]),
-        ),
-        room.mode === "performance"
-          ? el("div", { className: "meta" }, [
-              `Sync anchor: ${room.performance?.sync_anchor_id ?? "none"} · active performers: ${(room.performance?.active_performer_ids ?? []).join(", ") || "none"}`,
-            ])
-          : "",
+        ]),
+        recordingsSidebar,
       ]),
     ]),
   );
@@ -511,6 +628,7 @@ setInterval(() => {
         }
       }
       renderCall();
+      if (session.room.mode === "practice") void refreshRecordings(session);
     })
     .catch(() => undefined);
 }, 2000);

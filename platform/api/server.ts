@@ -162,6 +162,27 @@ export function createPlatformApi(opts?: { port?: number }): PlatformApi {
         return;
       }
 
+      const recordingsListMatch = url.pathname.match(/^\/rooms\/([^/]+)\/recordings$/);
+      if (req.method === "GET" && recordingsListMatch) {
+        const room_id = decodeURIComponent(recordingsListMatch[1]!);
+        sendJson(res, 200, { recordings: recordings.get(room_id) ?? [] });
+        return;
+      }
+
+      const recordingAudioMatch = url.pathname.match(
+        /^\/rooms\/([^/]+)\/recordings\/([^/]+)$/,
+      );
+      if (req.method === "GET" && recordingAudioMatch) {
+        const recording_id = decodeURIComponent(recordingAudioMatch[2]!);
+        const audio = recordingAudio.get(recording_id);
+        if (!audio) {
+          sendJson(res, 404, { error: "recording not found" });
+          return;
+        }
+        sendJson(res, 200, audio);
+        return;
+      }
+
       sendJson(res, 404, { error: "not found" });
     } catch (e) {
       if (e instanceof RoleValidationError) {
@@ -199,6 +220,35 @@ export function createPlatformApi(opts?: { port?: number }): PlatformApi {
     last_update_ms: number | null;
   }
   const processingStatus = new Map<string, ProcessingStatus>();
+
+  // "Record a take" (Practice mode): a client's start_recording/
+  // stop_recording control messages are forwarded to the room's attached
+  // processor over the same role=processor fan-out used for audio_chunk.
+  // On stop, the processor batch-aligns + mixes the full take and reports
+  // back a recording_ready message; stored here so the UI can list/play
+  // recordings via plain HTTP polling rather than needing a WS broadcast.
+  interface RecordingMeta {
+    recording_id: string;
+    signal_id: string | null;
+    participant_ids: string[];
+    duration_ms: number;
+    created_at: number;
+    status: "ready" | "failed";
+    reason?: string;
+  }
+  interface RecordingAudio {
+    sample_rate: number;
+    format: string;
+    pcm_base64: string;
+  }
+  const recordings = new Map<string, RecordingMeta[]>(); // room_id -> takes
+  const recordingAudio = new Map<string, RecordingAudio>(); // recording_id -> audio
+
+  function addRecording(room_id: string, meta: RecordingMeta): void {
+    const list = recordings.get(room_id) ?? [];
+    list.push(meta);
+    recordings.set(room_id, list);
+  }
 
   function getProcessingStatus(room_id: string): ProcessingStatus {
     return (
@@ -301,6 +351,47 @@ export function createPlatformApi(opts?: { port?: number }): PlatformApi {
       try {
         msg = JSON.parse(data.toString());
       } catch {
+        return;
+      }
+
+      if (msg.type === "start_recording" || msg.type === "stop_recording") {
+        // No in-process TS fallback for this -- it only exists via the
+        // real backend's batch alignment. If none is attached, this is a
+        // silent no-op (the client's UI won't see a recording appear).
+        forwardToProcessors(room_id, data.toString());
+        return;
+      }
+
+      if (msg.type === "recording_ready") {
+        const meta: RecordingMeta = {
+          recording_id: String(msg.recording_id ?? ""),
+          signal_id: typeof msg.signal_id === "string" ? msg.signal_id : null,
+          participant_ids: Array.isArray(msg.participant_ids)
+            ? (msg.participant_ids as string[])
+            : [],
+          duration_ms: Number(msg.duration_ms ?? 0),
+          created_at: Date.now(),
+          status: "ready",
+        };
+        addRecording(room_id, meta);
+        recordingAudio.set(meta.recording_id, {
+          sample_rate: Number(msg.sample_rate ?? 48000),
+          format: String(msg.format ?? "pcm_f32"),
+          pcm_base64: String(msg.pcm_base64 ?? ""),
+        });
+        return;
+      }
+
+      if (msg.type === "recording_failed") {
+        addRecording(room_id, {
+          recording_id: String(msg.recording_id ?? `rec_failed_${Date.now()}`),
+          signal_id: null,
+          participant_ids: [],
+          duration_ms: 0,
+          created_at: Date.now(),
+          status: "failed",
+          reason: String(msg.reason ?? "unknown"),
+        });
         return;
       }
 

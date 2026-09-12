@@ -175,6 +175,68 @@ button:disabled {
   font-size: 0.95rem;
 }
 
+.call-layout {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.call-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1rem;
+}
+
+.recordings-sidebar {
+  width: 15rem;
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  padding: 0.85rem;
+  background: rgba(0, 0, 0, 0.22);
+  display: grid;
+  gap: 0.6rem;
+  align-content: start;
+}
+
+.recordings-sidebar h2 {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  margin: 0;
+}
+
+button.primary {
+  background: var(--accent-2);
+  color: #08251a;
+}
+
+button.danger {
+  background: var(--danger);
+  color: #2a0d08;
+}
+
+.recordings-list {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.recording-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.recording-failed {
+  color: var(--danger);
+}
+
+.icon-button {
+  padding: 0.3rem 0.55rem;
+  line-height: 1;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));

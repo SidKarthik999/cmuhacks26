@@ -173,6 +173,12 @@ class PracticeSession:
             "used_sync": used_sync,
             "enhanced_samples": int(mix.size),
             "feed": frame,
+            # This call's freshly-cleaned chunk for `participant_id` (not
+            # the trimmed rolling `cleaned` buffer) -- callers that need a
+            # full, untrimmed per-participant recording (e.g. a "record
+            # this take" feature) should accumulate this themselves rather
+            # than reading st.cleaned, which is capped to the last ~4s.
+            "cleaned_chunk": cleaned,
         }
 
     def _mix(self) -> tuple[np.ndarray, bool]:
