@@ -58,6 +58,16 @@ class ParticipantStream:
     # StreamingAligner.local_warp_path) stay meaningful against the audio
     # passed to render_aligned_playback.
     aligner_window_audio: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float32))
+    # Cumulative count of samples ever appended into aligner_window_audio,
+    # before trimming -- lets _mix_with_task4 compute the current window's
+    # absolute start position on stream a's timeline even as old audio gets
+    # dropped off the front of the (size-capped) window.
+    aligner_total_fed: int = 0
+    # Newly-cleaned audio not yet emitted via the solo (no dual-sync)
+    # output path. Draining this instead of re-slicing the rolling
+    # `cleaned` buffer's tail avoids re-emitting already-heard audio (see
+    # docs/integration-contracts.md).
+    pending_for_solo_emit: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float32))
     singing: bool = False
     last_confidence: float = 0.0
     capture_start_ms: Optional[float] = None
@@ -86,6 +96,10 @@ class PracticeSession:
             else None
         )
         self._last_align: Optional[Dict[str, Any]] = None
+        # Position (in stream a's cumulative aligner-fed sample timeline)
+        # up to which the dual-sync mix has already been emitted. See
+        # _mix_with_task4.
+        self._mix_emitted_abs = 0
         self.streams = {
             pid: ParticipantStream(
                 participant_id=pid,
@@ -109,6 +123,7 @@ class PracticeSession:
         if cleaned.size:
             st.cleaned = np.concatenate([st.cleaned, cleaned])[-self.sample_rate * 4 :]
             st.pending_for_aligner = np.concatenate([st.pending_for_aligner, cleaned])
+            st.pending_for_solo_emit = np.concatenate([st.pending_for_solo_emit, cleaned])
 
         for ev in events:
             st.last_confidence = ev["confidence"]
@@ -148,24 +163,48 @@ class PracticeSession:
         if not active:
             solos = [s for s in self.streams.values() if s.cleaned.size]
             if len(solos) == 1:
-                return solos[0].cleaned[-int(0.2 * self.sample_rate) :], False
+                return self._drain_solo_emit(solos[0]), False
             return np.zeros(0, dtype=np.float32), False
         if len(active) == 1:
-            return active[0].cleaned[-int(0.25 * self.sample_rate) :], False
+            return self._drain_solo_emit(active[0]), False
 
         a, b = active[0], active[1]
-        mixed = self._mix_with_task4(a, b)
-        if mixed is not None:
-            return mixed, True
 
-        align = sync_streaming(a.cleaned, b.cleaned, self.sample_rate, self._last_align)
-        self._last_align = align
-        offset = float(align.get("offset_ms") or 0.0)
-        a_pcm = apply_offset(a.cleaned, max(0.0, -offset), self.sample_rate)
-        b_pcm = apply_offset(b.cleaned, max(0.0, offset), self.sample_rate)
-        n = min(a_pcm.size, b_pcm.size, int(0.25 * self.sample_rate))
-        mix = 0.5 * a_pcm[-n:] + 0.5 * b_pcm[-n:]
-        return mix.astype(np.float32), True
+        if self._aligner is None or render_aligned_playback is None:
+            # Task 4's real streaming aligner isn't importable at all (not
+            # "not ready yet this call" -- see below) -- fall back to the
+            # legacy mock constant-offset aligner so Practice mode still
+            # produces *a* dual mix. Not exercised in normal operation
+            # since signal-processing/sync is a hard dependency here.
+            align = sync_streaming(a.cleaned, b.cleaned, self.sample_rate, self._last_align)
+            self._last_align = align
+            offset = float(align.get("offset_ms") or 0.0)
+            a_pcm = apply_offset(a.cleaned, max(0.0, -offset), self.sample_rate)
+            b_pcm = apply_offset(b.cleaned, max(0.0, offset), self.sample_rate)
+            n = min(a_pcm.size, b_pcm.size, int(0.25 * self.sample_rate))
+            mix = 0.5 * a_pcm[-n:] + 0.5 * b_pcm[-n:]
+            return mix.astype(np.float32), True
+
+        mixed = self._mix_with_task4(a, b)
+        if mixed is None:
+            # Not enough newly-arrived audio for the aligner yet this call
+            # -- NOT the same as Task 4 being unavailable. Previously this
+            # fell through to the mock aligner above on every such call
+            # (which happens routinely, not just on error), silently
+            # replacing the real DTW-synced mix with the buggy fixed-tail
+            # mock mix most of the time (see docs/integration-contracts.md).
+            return np.zeros(0, dtype=np.float32), False
+        return mixed, True
+
+    def _drain_solo_emit(self, st: ParticipantStream) -> np.ndarray:
+        """Return exactly the newly-cleaned audio not yet emitted (no
+        dual-sync partner active), instead of re-slicing a fixed-duration
+        tail of the rolling `cleaned` buffer -- the latter re-emits already
+        -heard audio whenever the emission cadence differs from the input
+        cadence (see docs/integration-contracts.md)."""
+        out = st.pending_for_solo_emit
+        st.pending_for_solo_emit = np.zeros(0, dtype=np.float32)
+        return out
 
     def _mix_with_task4(
         self, a: ParticipantStream, b: ParticipantStream
@@ -193,6 +232,7 @@ class PracticeSession:
         # so the audio we render against lines up with warp_path's frame
         # numbering (converted to local via local_warp_path below).
         window_samples = self._aligner.window_frames * self._aligner.hop_length
+        a.aligner_total_fed += new_a.size
         a.aligner_window_audio = np.concatenate([a.aligner_window_audio, new_a])[-window_samples:]
         b.aligner_window_audio = np.concatenate([b.aligner_window_audio, new_b])[-window_samples:]
 
@@ -204,8 +244,32 @@ class PracticeSession:
             result.hop_length_ms,
         )
         pcm, _sr = read_wav(playback.mixed_wav)
-        n = min(pcm.size, int(0.25 * self.sample_rate))
-        return pcm[-n:] if n else pcm
+
+        # `pcm` covers the current window's absolute sample range
+        # [window_start_abs, window_start_abs + pcm.size) on stream a's
+        # cumulative aligner-fed timeline. Emit only the genuinely new part
+        # since we last emitted -- never a fixed-duration tail, which
+        # either repeats audio (tail > new-content-per-call) or silently
+        # drops it (tail < new-content-per-call). Also hold back a trailing
+        # margin: the DTW warp path near the window's newest edge can still
+        # be revised once more audio arrives, so don't commit it yet.
+        window_start_abs = a.aligner_total_fed - a.aligner_window_audio.size
+        margin_samples = self._aligner.hop_length * 2
+        end_local = pcm.size - margin_samples
+
+        if self._mix_emitted_abs < window_start_abs:
+            # Fell behind further than the window covers (e.g. a long gap)
+            # -- resync rather than try to backfill audio no longer in the
+            # window.
+            self._mix_emitted_abs = window_start_abs
+
+        start_local = self._mix_emitted_abs - window_start_abs
+        if end_local <= start_local:
+            return None  # nothing new and stable enough to emit yet
+
+        new_output = pcm[start_local:end_local].astype(np.float32)
+        self._mix_emitted_abs = window_start_abs + end_local
+        return new_output if new_output.size else None
 
     def _close_signal(self, st: ParticipantStream, stop_event: Dict[str, Any]) -> None:
         if self.store is None or SignalStore is None or not st.pending_pcm:

@@ -87,19 +87,43 @@ realign everyone else to them over a bounded trailing window each round) —
 correct today, but Task 6's real streaming/dropout-reassignment
 implementation should replace it once it lands.
 
-Practice mode's half of the worker reuses `modes/practice/pipeline.PracticeSession`
-as-is — but note that `PracticeSession._mix_with_task4` feeds
-`StreamingAligner.push` the **entire rolling ~4s buffer** on every call
-rather than only newly-arrived audio. `StreamingAligner` concatenates
-whatever it's given onto its own internal history before windowing, so this
-re-adds heavily overlapping chroma frames each call rather than genuinely
-incremental new-only frames — it still produces *a* warp path (which is why
-Practice mode's tests pass), but the reported frame indices don't mean what
-`StreamingAligner`'s docstring promises. Worth a fix when Person B or C next
-touches Practice mode's sync integration; `backend/worker.py`'s
-`PerformanceGroupSession` avoids the issue by calling the stateless
-`align_audio`/`render_aligned_playback` batch functions on a bounded window
-instead of reusing `StreamingAligner`'s persistent state.
+**Fixed: streaming output chunking (audible "mismatched"/garbled mix bug).**
+Both `PracticeSession._mix_with_task4` and `PerformanceGroupSession.push`
+used to slice a **fixed trailing duration** off a freshly-recomputed
+mix/alignment every call, instead of tracking exactly how much genuinely
+new, not-yet-emitted audio was available:
+
+- Practice mode fed `StreamingAligner.push` the **entire rolling ~4s
+  buffer** every call (not just newly-arrived audio), and separately
+  returned a fixed 0.25s output tail on a ~120ms input cadence — a ~52%
+  overlap per chunk, heard as stutter/warble. It also fell through to a
+  legacy fixed-tail mock aligner (`shared/mocks/mock_alignment.py`)
+  whenever the real aligner simply didn't have enough new data *yet* for a
+  given call (a normal, frequent occurrence, not an error) — that mock path
+  had the identical bug, and dominated the observed distortion in practice
+  (~3.9x more audio emitted than the session's actual wall-clock duration).
+- Performance mode's `PerformanceGroupSession` had the mirror-image bug:
+  a fixed 0.25s output tail against a variable per-`audio_chunk` cadence
+  meant roughly half of every chunk larger than 0.25s was silently
+  **dropped**, never emitted in any call — heard as gaps/skipping.
+
+Both are fixed with an emit-cursor design: each session tracks the absolute
+position (on the reference/aligned stream's cumulative-sample timeline)
+already emitted, and only emits the genuinely new samples since then, minus
+a small trailing margin held back because the DTW warp near the window's
+newest edge can still be revised once more audio arrives (see
+`StreamingAligner.frame_offset` / `.local_warp_path()`, added to support
+this). Verified post-fix: Practice mode's emitted-audio ratio to wall-clock
+duration is ~0.94; Performance mode's is ~0.79 (both correctly *under* 1.0
+from the margin/warm-up latency, not over from repeats) — see
+`modes/practice/tests/test_practice.py::test_emitted_audio_duration_does_not_grossly_exceed_wall_clock_duration`
+and `backend/tests/test_performance_group_session.py`.
+
+Not yet addressed: the resampling used to apply the time-correction is
+naive linear interpolation on raw waveform samples (`np.interp` in
+`signal-processing/sync/playback.py`), not a pitch-preserving method like a
+phase vocoder or WSOLA — this can still introduce its own small
+artifacts independent of the chunking fix above.
 
 ### Task 9 feed names
 

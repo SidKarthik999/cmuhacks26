@@ -45,7 +45,6 @@ from sync import align_audio, render_aligned_playback  # noqa: E402
 from practice.pipeline import PracticeSession  # noqa: E402
 
 WINDOW_SECONDS = 3.0
-MIX_CHUNK_SECONDS = 0.25
 
 
 def decode_audio_chunk(msg: Dict[str, Any]) -> np.ndarray:
@@ -79,13 +78,26 @@ def encode_mix_chunk(
 class PerformanceGroupSession:
     """Real (non-stub) stand-in for Task 6 group sync: pairwise-compose
     every active performer onto a chosen reference over a bounded trailing
-    window, per ROADMAP.md's suggested approach."""
+    window, per ROADMAP.md's suggested approach.
+
+    Emission is tracked with a cursor (`_emitted_abs`) on the reference
+    stream's cumulative-cleaned-sample timeline, not a fixed trailing
+    duration: `push()` is called once per incoming audio_chunk, and those
+    chunks can be any size, so slicing a fixed-duration tail either
+    re-emits audio (chunk smaller than the tail) or silently drops it
+    (chunk larger than the tail) -- see docs/integration-contracts.md. A
+    trailing margin is withheld from every emission since the DTW warp
+    near the window's newest edge can still be revised once more audio
+    arrives.
+    """
 
     room_id: str
     sample_rate: int = 48000
     cleaners: Dict[str, StreamingCleaner] = field(default_factory=dict)
     buffers: Dict[str, np.ndarray] = field(default_factory=dict)
     reference_id: Optional[str] = None
+    _ref_total_fed: int = field(default=0, repr=False)
+    _emitted_abs: int = field(default=0, repr=False)
 
     def push(self, participant_id: str, pcm: np.ndarray) -> Optional[np.ndarray]:
         cleaner = self.cleaners.setdefault(
@@ -101,17 +113,25 @@ class PerformanceGroupSession:
         active = [pid for pid, b in self.buffers.items() if b.size > 0]
         if not active:
             return None
+
+        previous_reference = self.reference_id
         if self.reference_id is None or self.reference_id not in active:
             self.reference_id = active[0]
 
-        ref_buf = self.buffers[self.reference_id]
-        n_out = min(ref_buf.size, int(self.sample_rate * MIX_CHUNK_SECONDS))
-        if n_out <= 0:
-            return None
+        if self.reference_id != previous_reference:
+            # Reference changed (initial pick, or reassignment on dropout)
+            # -- the timeline basis is different now. Resync _ref_total_fed
+            # from the buffer's current size directly (it already reflects
+            # this call's contribution if participant_id is the new
+            # reference) rather than also adding cleaned.size below, which
+            # would double-count it.
+            self._ref_total_fed = self.buffers[self.reference_id].size
+            self._emitted_abs = 0
+        elif participant_id == self.reference_id:
+            self._ref_total_fed += cleaned.size
 
+        ref_buf = self.buffers[self.reference_id]
         others = [pid for pid in active if pid != self.reference_id]
-        if not others:
-            return ref_buf[-n_out:].astype(np.float32)
 
         aligned_tracks = [ref_buf]
         min_frames_for_dtw = 2048
@@ -129,11 +149,28 @@ class PerformanceGroupSession:
             synced_pcm, _ = read_wav(playback.synced_other_wav)
             aligned_tracks.append(synced_pcm)
 
-        n = min(n_out, *[t.size for t in aligned_tracks])
-        if n <= 0:
-            return ref_buf[-n_out:].astype(np.float32)
-        mix = np.mean([t[-n:] for t in aligned_tracks], axis=0)
-        return mix.astype(np.float32)
+        mix_len = min(t.size for t in aligned_tracks)
+        if mix_len <= 0:
+            return None
+        mix = np.mean([t[-mix_len:] for t in aligned_tracks], axis=0).astype(np.float32)
+
+        # `mix` covers the trailing `mix_len` samples of the current
+        # window, i.e. absolute range [window_start_abs, window_start_abs
+        # + mix_len) on the reference's cumulative timeline.
+        window_start_abs = self._ref_total_fed - ref_buf.size
+        margin_samples = int(self.sample_rate * 0.2)  # ~200ms still-revisable edge
+        end_local = mix_len - margin_samples
+
+        if self._emitted_abs < window_start_abs:
+            self._emitted_abs = window_start_abs  # fell behind the window; resync
+
+        start_local = self._emitted_abs - window_start_abs
+        if end_local <= start_local:
+            return None  # nothing new and stable enough to emit yet
+
+        new_output = mix[start_local:end_local]
+        self._emitted_abs = window_start_abs + end_local
+        return new_output if new_output.size else None
 
 
 class BackendWorker:
