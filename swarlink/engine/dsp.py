@@ -278,6 +278,61 @@ def onset_envelope(
     return np.clip(env / scale, 0.0, 1.0)
 
 
+def pick_attacks(
+    x: np.ndarray,
+    sr: int = 22050,
+    hop_ms: float = 5.0,
+    dip_db: float = 10.0,
+    min_gap_ms: float = 130.0,
+    floor_db: float = -45.0,
+) -> np.ndarray:
+    """Re-articulation times in milliseconds, from dips in the level envelope.
+
+    Needed because pitch alone cannot see a repeated note. Two crotchet G4s in
+    a row are one continuous G4 to a contour-based segmenter, so "G4 G4 A4 B4"
+    comes back as "G4 A4 B4" -- the segmenter is not wrong about the pitch, it
+    simply has no evidence of the boundary.
+
+    Deliberately *not* built on `onset_envelope`, despite that being the
+    obvious candidate. Spectral flux is an excellent alignment feature, where
+    only the overall shape matters, and a poor note detector on legato
+    singing, where it has no percussive attack to find: measured on a sung
+    phrase, the true note boundaries scored between 0.16 and 1.00 while
+    spurious peaks from vibrato and formant motion reached 0.8, so no
+    threshold separates them.
+
+    What does separate them is loudness. A singer who re-articulates a note
+    releases and re-attacks, leaving a dip; one who slurs does not, and there
+    genuinely is only one note. On the same phrase, real boundaries dipped
+    12-15 dB while everything else stayed under 8, so the decision is a
+    threshold on dip depth rather than on absolute level -- which also makes
+    it independent of how loud the singer was.
+    """
+    env = frame_rms(x, sr=sr, hop_ms=hop_ms, win_ms=25.0)
+    if env.size < 5:
+        return np.zeros(0)
+    db = 20.0 * np.log10(np.maximum(env, 1e-6))
+    width = max(int(round(30.0 / hop_ms)) | 1, 3)
+    db = np.convolve(db, np.ones(width) / width, mode="same")
+
+    span = max(int(round(min_gap_ms / hop_ms)), 2)
+    minima = np.flatnonzero((db[1:-1] <= db[:-2]) & (db[1:-1] < db[2:])) + 1
+    kept: List[int] = []
+    for m in minima:
+        lo, hi = max(0, m - span), min(db.size, m + span + 1)
+        left, right = float(db[lo : m + 1].max()), float(db[m:hi].max())
+        if min(left, right) < floor_db + dip_db:
+            continue  # both sides are near silence: this is not a note boundary
+        if min(left, right) - float(db[m]) < dip_db:
+            continue
+        if kept and (m - kept[-1]) < span:
+            if db[m] < db[kept[-1]]:
+                kept[-1] = int(m)
+            continue
+        kept.append(int(m))
+    return np.asarray(kept, dtype=np.float64) * hop_ms
+
+
 # ------------------------------------------------------- time manipulation
 
 

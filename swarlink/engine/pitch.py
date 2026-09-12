@@ -190,7 +190,8 @@ def track(
     hi = np.clip(best + 1, 1, tau_max)
     a, b, c = cmnd[rows, lo], cmnd[rows, best], cmnd[rows, hi]
     denom_p = a - 2.0 * b + c
-    shift = np.where(np.abs(denom_p) > 1e-12, 0.5 * (a - c) / denom_p, 0.0)
+    flat = np.abs(denom_p) <= 1e-12
+    shift = np.where(flat, 0.0, 0.5 * (a - c) / np.where(flat, 1.0, denom_p))
     period = best + np.clip(shift, -1.0, 1.0)
 
     conf = np.clip(1.0 - b, 0.0, 1.0)
@@ -273,8 +274,13 @@ def median_filter(hz: np.ndarray, width: int = 5) -> np.ndarray:
     pad = width // 2
     padded = np.pad(hz, pad, mode="edge")
     win = np.lib.stride_tricks.sliding_window_view(padded, width)
+    # A window that is entirely unvoiced has no median, which numpy reports by
+    # warning. It is the expected state during a breath, so ask about it
+    # directly rather than letting the warning stand in for the answer.
+    live = np.isfinite(win).any(axis=1)
+    out = np.full(win.shape[0], np.nan)
     with np.errstate(invalid="ignore"):
-        out = np.nanmedian(win, axis=1)
+        out[live] = np.nanmedian(win[live], axis=1)
     # A frame the tracker called unvoiced stays unvoiced; the filter is only
     # allowed to correct pitch, never to invent voicing.
     return np.where(np.isfinite(hz), out, np.nan)
@@ -313,6 +319,17 @@ class NoteSpan:
     def duration_ms(self) -> float:
         return self.end_ms - self.start_ms
 
+    @property
+    def cents_off(self) -> float:
+        """How far the sung pitch sat from equal temperament, in cents.
+
+        Reported per note rather than averaged away, because a singer who is
+        reliably ten cents sharp on every note has a different problem from
+        one who is forty cents out on a single leap.
+        """
+        exact = 440.0 * 2.0 ** ((self.midi - 69) / 12.0)
+        return float(1200.0 * np.log2(self.hz / exact)) if self.hz > 0 else 0.0
+
     def as_dict(self) -> Dict[str, object]:
         return {
             "note": self.note,
@@ -320,8 +337,42 @@ class NoteSpan:
             "start_ms": round(self.start_ms, 1),
             "duration_ms": round(self.duration_ms, 1),
             "hz": round(self.hz, 2),
+            "cents_off_equal": round(self.cents_off, 1),
             "confidence": round(self.confidence, 3),
         }
+
+
+def _split_at_onsets(
+    runs: List[List[int]],
+    times_ms: np.ndarray,
+    onsets_ms: np.ndarray,
+    min_duration_ms: float,
+    hop_ms: float,
+) -> List[List[int]]:
+    """Cut same-pitch runs at attacks that land well inside them.
+
+    An attack near either end of a run is the run's own beginning or the next
+    note's, and cutting there would manufacture a sliver. Only interior
+    attacks -- at least one note-length from both ends -- are evidence of a
+    repeat.
+    """
+    if onsets_ms.size == 0:
+        return runs
+    out: List[List[int]] = []
+    for a, b in runs:
+        start, end = float(times_ms[a]), float(times_ms[b])
+        inner = onsets_ms[
+            (onsets_ms > start + min_duration_ms) & (onsets_ms < end - min_duration_ms)
+        ]
+        cursor = a
+        for t in inner:
+            idx = int(np.searchsorted(times_ms, t))
+            idx = min(max(idx, cursor + 1), b)
+            if (times_ms[idx] - times_ms[cursor]) >= min_duration_ms:
+                out.append([cursor, idx - 1])
+                cursor = idx
+        out.append([cursor, b])
+    return out
 
 
 def segment_notes(
@@ -329,6 +380,7 @@ def segment_notes(
     min_duration_ms: float = 90.0,
     merge_gap_ms: float = 70.0,
     smooth_ms: float = 70.0,
+    onsets_ms: Optional[Sequence[float]] = None,
 ) -> List[NoteSpan]:
     """Group a contour into discrete notes by rounding to the nearest semitone.
 
@@ -340,6 +392,11 @@ def segment_notes(
     runs separated by short gaps are re-joined, and fragments too short to be
     a note are dropped -- a 30 ms excursion through the semitone above is a
     portamento passing through, not a note.
+
+    Pass `onsets_ms` (see `dsp.pick_onsets`) to also split on attacks. Without
+    it, a repeated note is invisible: "G4 G4 A4" has no pitch boundary between
+    the two Gs, so it reads as a single long G4. Pitch answers *what* was sung
+    and the attack answers *how many times*, and the segmenter needs both.
     """
     if contour.hz.size == 0:
         return []
@@ -373,6 +430,12 @@ def segment_notes(
                 merged[-1][1] = run[1]
                 continue
         merged.append(run)
+
+    if onsets_ms is not None:
+        merged = _split_at_onsets(
+            merged, contour.time_ms, np.asarray(onsets_ms, dtype=np.float64),
+            min_duration_ms, hop,
+        )
 
     spans: List[NoteSpan] = []
     for a, b in merged:

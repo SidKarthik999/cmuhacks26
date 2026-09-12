@@ -35,6 +35,28 @@ class Metric:
     good: str = "low"  # "low", "high", or "zero"
     anchors: Tuple[Tuple[float, str], ...] = ()
 
+    def display(self, value: Optional[float]) -> str:
+        """The value as a person should read it, unit attached.
+
+        Formatted here rather than at each call site so a metric's precision
+        is a property of the metric. Cents and milliseconds are whole numbers
+        -- nobody acts on a tenth of a cent -- while ratios and correlations
+        need the decimals to say anything at all.
+        """
+        if value is None:
+            return "--"
+        if self.unit in ("cents", "ms"):
+            return f"{value:+.0f} {self.unit}" if self.good == "zero" else f"{value:.0f} {self.unit}"
+        if self.unit == "dB":
+            return f"{value:+.2f} dB" if self.good == "zero" else f"{value:.2f} dB"
+        if self.unit == "%":
+            return f"{value:.1f}%"
+        # A tempo ratio at one decimal place is 1.1 whether the singer was 6%
+        # quick or 14% quick, which is the whole content of the number.
+        if self.unit in ("", "x", "ratio"):
+            return f"{value:.3f}{self.unit}"
+        return f"{value:.1f} {self.unit}".strip()
+
     def describe(self, value: Optional[float]) -> Dict[str, object]:
         """Package a measured value with everything needed to render it."""
         return {
@@ -42,6 +64,7 @@ class Metric:
             "label": self.label,
             "unit": self.unit,
             "value": None if value is None else round(float(value), 3),
+            "display": self.display(value),
             "meaning": self.meaning,
             "reading": self.reading,
             "good": self.good,

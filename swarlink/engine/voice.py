@@ -379,9 +379,14 @@ def phrase(
     vowels: Optional[Sequence[str]] = None,
     velocities: Optional[Sequence[float]] = None,
 ) -> List[Note]:
-    """Convenience builder: a list of note names at a fixed duration."""
+    """Convenience builder: a list of note names at a fixed duration.
+
+    A single string is split on whitespace, so `phrase("C4 D4 E4")` and
+    `phrase(["C4", "D4", "E4"])` both work; without that, iterating the
+    string yields characters and "C" reaches `note_to_hz` as a note name.
+    """
     out: List[Note] = []
-    pitches = list(pitches)
+    pitches = pitches.split() if isinstance(pitches, str) else list(pitches)
     for i, p in enumerate(pitches):
         vowel = (vowels[i % len(vowels)] if vowels else "ah")
         vel = (velocities[i % len(velocities)] if velocities else 1.0)

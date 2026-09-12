@@ -46,7 +46,14 @@ def _istft(spec: np.ndarray, n_fft: int = N_FFT, hop: int = HOP) -> np.ndarray:
         start = i * hop
         acc[start : start + n_fft] += frame
         wsum[start : start + n_fft] += window * window
-    wsum = np.maximum(wsum, 1e-8)
+    # Floor the window sum relative to its steady-state value, not at an
+    # absolute epsilon. The first and last half-window are covered by only a
+    # fraction of one window, where `w**2` falls to ~1e-9; dividing by that
+    # turned the leading samples into full-scale clicks (samples 1-9 railed to
+    # -1.0 on a take whose loudest sample was 0.76). Flooring instead lets the
+    # unreconstructable edges fade in, which is what they are.
+    peak = float(wsum.max())
+    wsum = np.maximum(wsum, 1e-2 * peak if peak > 0 else 1e-8)
     return acc / wsum
 
 

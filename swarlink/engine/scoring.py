@@ -317,12 +317,20 @@ def compare(
     values.update(_pitch_part(t_smooth, student_hz))
     values.update(_volume_part(t_level, s_level, teacher, student, sr))
 
+    # Report the entry offset the aligner settled on, not a fresh
+    # cross-correlation of the two raw takes. On repetitive material the raw
+    # estimate is genuinely ambiguous -- a scale is eight similar attacks at
+    # even spacing, so locking one note early or two notes late is almost as
+    # cheap as locking correctly, and it read -840 ms on a take that was
+    # 160 ms late. The aligner's offset comes from a joint offset-and-tempo
+    # scan followed by a banded path, which resolves that ambiguity. The raw
+    # figure is kept only to notice when it happens.
     raw_offset, raw_conf = align.estimate_offset_ms(teacher, student, sr=sr)
     resid, _ = align.residual_offset_ms(teacher, student_aligned, sr=sr)
     drift = alignment.drift_series(13, span_ms=teacher.size * 1000.0 / sr)
     values.update(
         {
-            "onset_offset_ms": raw_offset,
+            "onset_offset_ms": alignment.offset_ms,
             "residual_offset_ms": resid,
             "worst_window_ms": align._worst_window_ms(teacher, student_aligned, sr=sr),
             "tempo_ratio": alignment.tempo_ratio,
@@ -361,6 +369,12 @@ def compare(
         caveats.append(
             "Few clear attacks to align on, so the timing numbers are weak "
             "evidence rather than measurements."
+        )
+    if abs(raw_offset - alignment.offset_ms) > 120.0:
+        caveats.append(
+            "The take is repetitive enough that a plain onset match put the "
+            f"entry at {raw_offset:+.0f} ms where the full alignment puts it at "
+            f"{alignment.offset_ms:+.0f} ms. The score uses the latter."
         )
     uncovered = sum(1 for r in rows if not r.covered)
     if uncovered:
