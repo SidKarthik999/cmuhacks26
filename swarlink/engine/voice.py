@@ -153,17 +153,33 @@ def _one_pole_lowpass(x: np.ndarray, cutoff_hz: float, sr: int) -> np.ndarray:
     return out
 
 
+SOURCE_TILT_REF_HZ = 200.0
+
+
 def _formant_response(freqs: np.ndarray, vowel: str, brightness: float) -> np.ndarray:
-    """Magnitude of a 3-resonator vocal tract at the given harmonic freqs."""
+    """Magnitude of a 3-resonator vocal tract at the given harmonic freqs.
+
+    The resonators are *cascaded*, not summed, and each is a two-pole section
+    normalised to unity at DC. That distinction is not cosmetic. Summing
+    Lorentzians leaves a deep null everywhere far from a formant, including
+    below F1 -- so an "ah" (F1 = 700 Hz) sung on E4 came out with its second
+    harmonic 22 dB above its fundamental, and a pitch tracker reading that
+    signal reports E5, correctly, because the waveform really is periodic at
+    half the intended period. A cascade is flat below F1 instead of null, the
+    way a real vocal tract is, and the fundamental survives.
+    """
     centres, bandwidths = VOWELS[vowel]
-    mag = np.zeros_like(freqs)
-    for idx, (fc, bw) in enumerate(zip(centres, bandwidths)):
-        # Lorentzian resonance; higher formants weighted down, then pulled
-        # back up by `brightness` so profiles differ in spectral tilt.
-        weight = (1.0 / (idx + 1.0)) * (brightness ** idx)
-        mag += weight * (bw / 2.0) ** 2 / ((freqs - fc) ** 2 + (bw / 2.0) ** 2)
-    # Glottal source rolls off ~ -12 dB/octave above the fundamental.
-    tilt = 1.0 / np.maximum(freqs / 180.0, 1.0) ** 1.1
+    f2 = freqs ** 2
+    mag = np.ones_like(freqs)
+    for fc, bw in zip(centres, bandwidths):
+        # |H| of a 2-pole resonator: 1 at DC, about fc/bw at the peak,
+        # -12 dB/octave above it.
+        mag *= fc ** 2 / np.sqrt((fc ** 2 - f2) ** 2 + (bw * freqs) ** 2)
+    # Differentiated glottal flow falls with frequency; `brightness` scales
+    # how fast, which is most of what separates a bass from a soprano once
+    # the vowel is fixed.
+    exponent = 1.0 / max(brightness, 0.2)
+    tilt = 1.0 / np.maximum(freqs / SOURCE_TILT_REF_HZ, 1.0) ** exponent
     return mag * tilt
 
 

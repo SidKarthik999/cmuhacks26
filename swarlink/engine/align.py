@@ -28,6 +28,30 @@ MAX_OFFSET_MS = 1500.0
 TEMPO_RANGE = (0.78, 1.28)
 
 
+CORR_SMOOTH_MS = 25.0
+
+
+def _smooth_env(env: np.ndarray, hop_ms: float = ONSET_HOP_MS, width_ms: float = CORR_SMOOTH_MS) -> np.ndarray:
+    """Widen onset spikes before correlating them.
+
+    A raw onset envelope is nearly a spike train. Correlating two spike
+    trains is all-or-nothing: when the takes differ in tempo, note three
+    lines up and note six is 30 ms out, contributing nothing, and the peak
+    that wins can be a coincidence between unrelated notes. Blurring each
+    onset over a couple of frames makes a near miss count as a near miss, and
+    it is also the honest model of the question being asked -- a singer's
+    attack is not an instant.
+    """
+    sigma = max(width_ms / hop_ms, 0.5)
+    half = max(int(round(3 * sigma)), 1)
+    t = np.arange(-half, half + 1)
+    kernel = np.exp(-0.5 * (t / sigma) ** 2)
+    kernel /= kernel.sum()
+    if env.size < kernel.size:
+        return env
+    return np.convolve(env, kernel, mode="same")
+
+
 def _xcorr_peak(
     a: np.ndarray, b: np.ndarray, max_lag: int, min_lag: Optional[int] = None
 ) -> Tuple[int, float]:
@@ -97,8 +121,8 @@ def scan_offset_tempo(
     tempo the other take is resampled in the onset domain and the best lag is
     found by cross-correlation; the pair with the highest correlation wins.
     """
-    env_a = dsp.onset_envelope(ref, sr=sr, hop_ms=ONSET_HOP_MS)
-    env_b = dsp.onset_envelope(other, sr=sr, hop_ms=ONSET_HOP_MS)
+    env_a = _smooth_env(dsp.onset_envelope(ref, sr=sr, hop_ms=ONSET_HOP_MS))
+    env_b = _smooth_env(dsp.onset_envelope(other, sr=sr, hop_ms=ONSET_HOP_MS))
     if env_a.size < 4 or env_b.size < 4:
         return 0.0, 1.0, 0.0
 
