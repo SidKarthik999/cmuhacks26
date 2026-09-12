@@ -1,0 +1,12 @@
+{
+  "type": "audio_chunk",
+  "room_id": "room_demo_performance",
+  "participant_id": "part_lead",
+  "track_id": "trk_local_alice",
+  "seq": 0,
+  "timestamp_ms": 0,
+  "sample_rate": 48000,
+  "channels": 1,
+  "format": "pcm_f32",
+  "pcm_base64": "AAAAAA=="
+}

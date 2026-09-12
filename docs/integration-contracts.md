@@ -1,7 +1,104 @@
 # Integration contracts
 
-Human-readable restatement of the schemas in `shared/schemas/`. See Part 4 of
-`ROADMAP.md` for the rules governing changes to these contracts.
+Human-readable restatement of cross-track schemas and the **platform ↔ audio
+backend** boundary. See Part 4 of `ROADMAP.md` for the rules governing
+changes to these contracts.
+
+Owner of the platform↔backend boundary section: **Person A** (`platform/`).
+Schema ownership matches `ROADMAP.md` Part 4.
+
+## Schemas (single source of truth under `shared/schemas/`)
+
+| Schema | Owner | Consumers | Status |
+|--------|-------|-----------|--------|
+| `audio_track.schema.json` | Person A | B (Task 2), C (capture) | Landed |
+| `room_state.schema.json` | Person A | B, C | Landed |
+| `singing_event.schema.json` | Person B | C | Landed |
+| `pitch_contour.schema.json` | Person B | C (Task 5) | Landed |
+| `note_event.schema.json` | Person B | A/UI | Landed |
+| `signal.schema.json` | Person C | A, B | Landed |
+| `alignment_result.schema.json` | Person C | A (routing/mix), B | Landed |
+| `comparison_result.schema.json` | Person C | A/UI | Not yet landed — Task 5 |
+
+**Change rule:** owner defines; every current consumer reviews before merge.
+Breaking changes bump the schema `version` field.
+
+Typed bindings for A-owned schemas live in `shared/bindings/`. Mocks/fixtures
+in `shared/mocks/`.
+
+---
+
+## The one real boundary: `platform/` ↔ audio backend
+
+`audio-intelligence/` and `signal-processing/` share one backend process
+(function-call boundary). The **only** network/language boundary is between
+the TypeScript platform and that backend.
+
+### Platform → backend: raw per-participant audio
+
+- **Transport:** WebSocket `ws://<platform-host>/ws/audio?room_id=...&role=backend`
+- **Frame shape** (also `shared/mocks/mock_pcm_chunk.json`):
+
+```json
+{
+  "type": "audio_chunk",
+  "room_id": "room_demo_performance",
+  "participant_id": "part_lead",
+  "track_id": "trk_local_alice",
+  "seq": 0,
+  "timestamp_ms": 0,
+  "sample_rate": 48000,
+  "channels": 1,
+  "format": "pcm_f32",
+  "pcm_base64": "<Float32 little-endian PCM as base64>"
+}
+```
+
+Client-side taps use `platform/src/audio/AudioTrackTap.ts` to produce these
+chunks from Task 1 `MediaStreamTrack`s / `AudioTrack` descriptors.
+
+### Backend → platform: processed results & mixes
+
+- Same WebSocket (or a room channel). Example Performance mix push:
+  `shared/mocks/mock_processed_result.json`.
+- Clients that need a named Task 9 feed connect with
+  `role=client&participant_id=...` and receive `feed_chunk` messages only for
+  feeds listed in `room_state.feeds[participant_id]`.
+
+**Current status:** `platform/api/server.ts` implements this boundary and a
+TypeScript-side stand-in for the backend logic inside
+`modes/performance/performanceMode.ts` (using the stubs below), so
+Performance mode runs end-to-end today without the Python backend attached.
+Wiring an actual Python process to connect as `role=backend`, run the real
+Task 2/6/7 implementations, and push real `performance_mix_chunk`/
+`feed_chunk` results back is tracked as the next piece of "framework" work —
+see the note in `modes/performance/stubs/` below.
+
+### Task 9 feed names
+
+| Feed | Who typically receives it |
+|------|---------------------------|
+| `raw_call` | Everyone in Teach; performers in Performance; everyone in Practice |
+| `enhanced` | Practice peers (second feed alongside raw) |
+| `performance_mix` | Performance listeners only |
+
+---
+
+## HTTP surface (`platform/api`)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/rooms` | Create room `{ mode, room_id? }` |
+| `GET` | `/rooms/:id` | Fetch `RoomState` |
+| `POST` | `/rooms/:id/join` | Join with `{ display_name, role }` → room + LiveKit token |
+| `POST` | `/rooms/:id/participants/:pid/leave` | Leave |
+| `GET` | `/health` | Liveness |
+
+LiveKit: set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`. Without
+them the API returns a **mock token** and the UI uses `MockCallSession`
+while still exposing per-participant `AudioTrack`s for downstream work.
+
+---
 
 ## signal.schema.json (Task 3)
 
@@ -121,12 +218,41 @@ alignments, not as a statistical guarantee.
 
 ## Pending schemas (stubbed, not yet implemented)
 
-The remaining schemas listed in Part 4's repo layout
-(`comparison_result.schema.json` — Person C, Task 5,
-`room_state.schema.json` and `audio_track.schema.json` — Person A) are not
-defined yet. Add them here as their owning tasks land.
+`comparison_result.schema.json` (Task 5, Person C) is not defined yet. Add
+it here once it lands.
 
 Person B assumes float32 mono PCM chunks keyed by `participant_id` +
-`room_id` (`shared/mocks/mock_audio_track.py`) until Person A lands
-`audio_track.schema.json`. Practice mode delivers the enhanced feed via
-`shared/mocks/mock_routing.py` (`EnhancedFeedRouter`) until Task 9 lands.
+`room_id` (`shared/mocks/mock_audio_track.py`) as a Python-side stand-in for
+`audio_track.schema.json` until the real per-track handoff (via the platform
+boundary above) is wired end-to-end. Practice mode delivers the enhanced
+feed via `shared/mocks/mock_routing.py` (`EnhancedFeedRouter`) as a stand-in
+for Person A's real `MultiFeedRouter` (`platform/src/feedRouter.ts`) — see
+"Known integration gaps" below.
+
+## Known integration gaps (found comparing all three tracks post-merge)
+
+These are places where each track's *tests* pass in isolation, but the
+tracks aren't actually wired to each other yet — tracked here so they don't
+get lost, and covered by the new tests in `modes/*/tests/test_integration.py`
+where feasible:
+
+1. **Practice mode's routing is disconnected from Task 9.** Person B's
+   `modes/practice/pipeline.py` pushes the enhanced feed into
+   `shared/mocks/mock_routing.EnhancedFeedRouter` (an in-process Python stub),
+   not Person A's real `platform/src/feedRouter.ts`. Since one is Python and
+   one is TypeScript, connecting them for real requires the Python side to
+   run as a `role=backend` WebSocket client against `platform/api/server.ts`
+   and publish frames there — that hasn't been built yet.
+2. **Performance mode's Task 6/7 stubs are TypeScript, not the real Python
+   implementations.** `modes/performance/stubs/groupSync.ts` and
+   `streamingClean.ts` are identity/no-op stand-ins run in-process by
+   `PerformanceOrchestrator`. The real `signal-processing/sync` (Task 4, and
+   Task 6 once it lands) and `audio-intelligence/cleaning` (Task 7) only run
+   on the Python side today, so Performance mode doesn't yet call them at
+   all — it needs the same WebSocket backend connection as (1).
+3. **`audio_track.schema.json` (Person A) isn't consumed as-is by Person B.**
+   `SingingDetector`/`StreamingCleaner` take raw PCM arrays directly; the
+   schema's `track_id`/`format`/`is_remote` metadata only exists on the
+   platform side and isn't threaded through the WebSocket `audio_chunk`
+   message into the Python functions' inputs. Not broken, just not
+   round-tripped — worth checking when the backend WS client gets built.
