@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "room_id": "room_demo_performance",
+  "mode": "performance",
+  "created_at": "2026-09-12T04:00:00.000Z",
+  "participants": [
+    {
+      "participant_id": "part_lead",
+      "display_name": "Lead Singer",
+      "role": "lead",
+      "joined_at": "2026-09-12T04:00:05.000Z"
+    },
+    {
+      "participant_id": "part_p2",
+      "display_name": "Performer Two",
+      "role": "performer",
+      "joined_at": "2026-09-12T04:00:08.000Z"
+    },
+    {
+      "participant_id": "part_listener",
+      "display_name": "Audience",
+      "role": "listener",
+      "joined_at": "2026-09-12T04:01:00.000Z"
+    }
+  ],
+  "feeds": {
+    "part_lead": ["raw_call"],
+    "part_p2": ["raw_call"],
+    "part_listener": ["performance_mix"]
+  },
+  "performance": {
+    "lead_participant_id": "part_lead",
+    "active_performer_ids": ["part_lead", "part_p2"],
+    "sync_anchor_id": "part_lead"
+  }
+}

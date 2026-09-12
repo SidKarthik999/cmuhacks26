@@ -1,0 +1,12 @@
+{
+  "type": "performance_mix_chunk",
+  "room_id": "room_demo_performance",
+  "seq": 0,
+  "timestamp_ms": 850,
+  "sample_rate": 48000,
+  "channels": 1,
+  "format": "pcm_f32",
+  "pcm_base64": "AAAAAA==",
+  "anchor_participant_id": "part_lead",
+  "contributor_ids": ["part_lead", "part_p2"]
+}

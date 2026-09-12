@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "track_id": "trk_local_alice",
+  "participant_id": "part_alice",
+  "room_id": "room_demo_performance",
+  "sample_rate": 48000,
+  "channels": 1,
+  "format": "pcm_f32",
+  "is_remote": false,
+  "media_stream_track_id": "MST_mock_1"
+}

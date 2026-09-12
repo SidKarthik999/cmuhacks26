@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmuhacks26.local/schemas/room_state.schema.json",
+  "title": "RoomState",
+  "description": "Task 1 + mode/role infra — Person A owns. Room session with mode and per-participant roles.",
+  "version": 1,
+  "type": "object",
+  "required": ["room_id", "mode", "created_at", "participants", "feeds"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "room_id": {
+      "type": "string"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["teach", "practice", "performance"]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "participants": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/participant"
+      }
+    },
+    "feeds": {
+      "type": "object",
+      "description": "Task 9 — which named feeds each participant currently receives.",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": ["raw_call", "enhanced", "performance_mix"]
+        }
+      }
+    },
+    "performance": {
+      "type": ["object", "null"],
+      "description": "Present only when mode === performance.",
+      "properties": {
+        "lead_participant_id": {
+          "type": ["string", "null"]
+        },
+        "active_performer_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "sync_anchor_id": {
+          "type": ["string", "null"],
+          "description": "Current Task 6 group-sync anchor; may differ from lead after dropout reassignment."
+        }
+      },
+      "required": ["lead_participant_id", "active_performer_ids", "sync_anchor_id"],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "participant": {
+      "type": "object",
+      "required": ["participant_id", "display_name", "role", "joined_at"],
+      "properties": {
+        "participant_id": { "type": "string" },
+        "display_name": { "type": "string" },
+        "role": {
+          "type": "string",
+          "enum": [
+            "teacher",
+            "student",
+            "peer",
+            "performer",
+            "lead",
+            "listener"
+          ],
+          "description": "lead implies performer + sync-anchor flag; stored as 'lead' for the designated performer."
+        },
+        "joined_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
