@@ -65,14 +65,41 @@ chunks from Task 1 `MediaStreamTrack`s / `AudioTrack` descriptors.
   `role=client&participant_id=...` and receive `feed_chunk` messages only for
   feeds listed in `room_state.feeds[participant_id]`.
 
-**Current status:** `platform/api/server.ts` implements this boundary and a
-TypeScript-side stand-in for the backend logic inside
-`modes/performance/performanceMode.ts` (using the stubs below), so
-Performance mode runs end-to-end today without the Python backend attached.
-Wiring an actual Python process to connect as `role=backend`, run the real
-Task 2/6/7 implementations, and push real `performance_mix_chunk`/
-`feed_chunk` results back is tracked as the next piece of "framework" work —
-see the note in `modes/performance/stubs/` below.
+**Current status: wired end-to-end (`backend/worker.py`).** A real
+out-of-process Python worker connects to `/ws/audio?room_id=...&role=processor`,
+receives every `audio_chunk` for that room, and computes a real mix using
+Person B's `StreamingCleaner` and Person C's `sync` module — replacing the
+in-process TypeScript stubs in `modes/performance/stubs/` for any room the
+worker is attached to. `platform/api/server.ts` forwards `audio_chunk` to
+attached processors and falls back to the original in-process stub
+orchestrator only when no processor is connected, so nothing about the
+existing stub path or its tests changed. The worker replies with a
+generalized `mix_chunk` message (`{type, feed, room_id, timestamp_ms,
+sample_rate, format, pcm_base64, meta}`); the server publishes it on
+whichever named feed (`enhanced` for Practice, `performance_mix` for
+Performance) the message specifies. See
+`backend/tests/test_backend_worker_integration.py` for the full end-to-end
+proof (real server + real worker + real WebSocket clients, no mocks).
+
+Performance mode's group sync in the worker (`PerformanceGroupSession`) is a
+pairwise-composed stand-in for Task 6 (pick a reference performer, batch-
+realign everyone else to them over a bounded trailing window each round) —
+correct today, but Task 6's real streaming/dropout-reassignment
+implementation should replace it once it lands.
+
+Practice mode's half of the worker reuses `modes/practice/pipeline.PracticeSession`
+as-is — but note that `PracticeSession._mix_with_task4` feeds
+`StreamingAligner.push` the **entire rolling ~4s buffer** on every call
+rather than only newly-arrived audio. `StreamingAligner` concatenates
+whatever it's given onto its own internal history before windowing, so this
+re-adds heavily overlapping chroma frames each call rather than genuinely
+incremental new-only frames — it still produces *a* warp path (which is why
+Practice mode's tests pass), but the reported frame indices don't mean what
+`StreamingAligner`'s docstring promises. Worth a fix when Person B or C next
+touches Practice mode's sync integration; `backend/worker.py`'s
+`PerformanceGroupSession` avoids the issue by calling the stateless
+`align_audio`/`render_aligned_playback` batch functions on a bounded window
+instead of reusing `StreamingAligner`'s persistent state.
 
 ### Task 9 feed names
 
@@ -232,27 +259,26 @@ for Person A's real `MultiFeedRouter` (`platform/src/feedRouter.ts`) — see
 ## Known integration gaps (found comparing all three tracks post-merge)
 
 These are places where each track's *tests* pass in isolation, but the
-tracks aren't actually wired to each other yet — tracked here so they don't
-get lost, and covered by the new tests in `modes/*/tests/test_integration.py`
-where feasible:
+tracks weren't actually wired to each other. (1) and (2) are now **closed**
+by `backend/worker.py` and `platform/api/server.ts`'s new `role=processor`
+path — see "Current status" above and
+`backend/tests/test_backend_worker_integration.py` for the real end-to-end
+proof. (3) is still open.
 
-1. **Practice mode's routing is disconnected from Task 9.** Person B's
-   `modes/practice/pipeline.py` pushes the enhanced feed into
-   `shared/mocks/mock_routing.EnhancedFeedRouter` (an in-process Python stub),
-   not Person A's real `platform/src/feedRouter.ts`. Since one is Python and
-   one is TypeScript, connecting them for real requires the Python side to
-   run as a `role=backend` WebSocket client against `platform/api/server.ts`
-   and publish frames there — that hasn't been built yet.
-2. **Performance mode's Task 6/7 stubs are TypeScript, not the real Python
-   implementations.** `modes/performance/stubs/groupSync.ts` and
-   `streamingClean.ts` are identity/no-op stand-ins run in-process by
-   `PerformanceOrchestrator`. The real `signal-processing/sync` (Task 4, and
-   Task 6 once it lands) and `audio-intelligence/cleaning` (Task 7) only run
-   on the Python side today, so Performance mode doesn't yet call them at
-   all — it needs the same WebSocket backend connection as (1).
+1. ~~**Practice mode's routing is disconnected from Task 9.**~~ **Closed.**
+   `backend/worker.py` connects as `role=processor`, runs `PracticeSession`
+   for real, and publishes the resulting `enhanced` feed through
+   `platform/src/feedRouter.ts` via a `mix_chunk` message — the real router,
+   not `mock_routing.EnhancedFeedRouter`.
+2. ~~**Performance mode's Task 6/7 stubs are TypeScript, not the real Python
+   implementations.**~~ **Closed** for rooms with a worker attached: the
+   worker runs real `StreamingCleaner` (Task 7) and a pairwise-composed
+   real sync (`PerformanceGroupSession`, standing in for Task 6) and
+   publishes `performance_mix` through the real router. Rooms with no
+   worker attached still fall back to `modes/performance/stubs/` unchanged.
 3. **`audio_track.schema.json` (Person A) isn't consumed as-is by Person B.**
    `SingingDetector`/`StreamingCleaner` take raw PCM arrays directly; the
    schema's `track_id`/`format`/`is_remote` metadata only exists on the
    platform side and isn't threaded through the WebSocket `audio_chunk`
    message into the Python functions' inputs. Not broken, just not
-   round-tripped — worth checking when the backend WS client gets built.
+   round-tripped. Still open.

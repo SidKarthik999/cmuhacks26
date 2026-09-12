@@ -170,6 +170,32 @@ export function createPlatformApi(opts?: { port?: number }): PlatformApi {
 
   const wss = new WebSocketServer({ server, path: "/ws/audio" });
 
+  // Task 9.5 (additive, Person C): real out-of-process audio backend
+  // support. A connection with role=processor is a live worker (e.g. the
+  // Python audio-intelligence/signal-processing backend) that wants to see
+  // every audio_chunk for a room and compute the real mix itself, instead
+  // of relying on the in-process TS stubs (streamingClean/groupSync) in
+  // modes/performance/. When at least one processor is attached to a room,
+  // incoming audio_chunk messages are forwarded to it verbatim and the
+  // in-process orchestrator is skipped for that frame, so the two paths
+  // never both publish a mix for the same frame. With no processor
+  // attached, behavior is unchanged from before (stub orchestrator path),
+  // so existing tests/behavior aren't affected.
+  const processors = new Map<string, Set<WebSocket>>();
+
+  function forwardToProcessors(room_id: string, raw: string): boolean {
+    const set = processors.get(room_id);
+    if (!set || set.size === 0) return false;
+    let forwarded = false;
+    for (const p of set) {
+      if (p.readyState === WebSocket.OPEN) {
+        p.send(raw);
+        forwarded = true;
+      }
+    }
+    return forwarded;
+  }
+
   wss.on("connection", (ws, req) => {
     const url = new URL(req.url ?? "", "http://localhost");
     const room_id = url.searchParams.get("room_id");
@@ -204,6 +230,25 @@ export function createPlatformApi(opts?: { port?: number }): PlatformApi {
       return;
     }
 
+    // Real out-of-process audio backend (e.g. the Python worker in
+    // signal-processing/backend/). Registers to receive every audio_chunk
+    // for this room and is expected to reply with mix_chunk messages.
+    if (direction === "processor") {
+      let set = processors.get(room_id);
+      if (!set) {
+        set = new Set();
+        processors.set(room_id, set);
+      }
+      set.add(ws);
+      ws.on("close", () => {
+        set!.delete(ws);
+        if (set!.size === 0) processors.delete(room_id);
+      });
+      // Falls through to the shared message handler below so a processor
+      // can also send mix_chunk / performance_mix_chunk back on this same
+      // connection.
+    }
+
     // Audio backend: receives raw PCM, may push processed mix (Practice) —
     // Performance path can also be driven server-side via orchestrator below.
     ws.on("message", (data) => {
@@ -215,6 +260,12 @@ export function createPlatformApi(opts?: { port?: number }): PlatformApi {
       }
 
       if (msg.type === "audio_chunk" && typeof msg.participant_id === "string") {
+        if (forwardToProcessors(room_id, data.toString())) {
+          // A real backend is attached and will publish its own mix via
+          // mix_chunk/performance_mix_chunk; don't also run the in-process
+          // stub for this frame.
+          return;
+        }
         const orch = orchestrators.get(room_id);
         if (!orch) return;
         const pcm_base64 = String(msg.pcm_base64 ?? "");
@@ -240,6 +291,32 @@ export function createPlatformApi(opts?: { port?: number }): PlatformApi {
             }),
           );
         }
+      }
+
+      if (msg.type === "mix_chunk") {
+        // Generalized processor result: any named feed (e.g. "enhanced"
+        // for Practice, "performance_mix" for Performance), not just
+        // Performance's mix. Same wire shape as performance_mix_chunk
+        // below, plus an explicit `feed`.
+        const pcm_base64 = String(msg.pcm_base64 ?? "");
+        const buf = Buffer.from(pcm_base64, "base64");
+        const samples = new Float32Array(
+          buf.buffer,
+          buf.byteOffset,
+          Math.floor(buf.byteLength / 4),
+        );
+        const room = store.getRoom(room_id);
+        if (room) router.syncFromRoomFeeds(room.feeds);
+        router.publish({
+          feed: (msg.feed as AudioFeedChunk["feed"]) ?? "performance_mix",
+          room_id,
+          timestamp_ms: Number(msg.timestamp_ms ?? 0),
+          sample_rate: Number(msg.sample_rate ?? 48000),
+          channels: 1,
+          format: "pcm_f32",
+          samples,
+          meta: (msg.meta as Record<string, unknown>) ?? {},
+        });
       }
 
       if (msg.type === "performance_mix_chunk") {
