@@ -476,4 +476,112 @@ Each person keeps roughly the ownership area they already have context on, but t
 
 ---
 
-*Roadmap updated after the first live integration pass: video calling, Task 1-9 (Task 6 as a stand-in), and Performance mode confirmed working end-to-end across two real devices with the real audio backend attached. Task 5 (compare/score) completed this pass. Teach mode remains unbuilt. See Part 5 for current status and the round-2 3-person split — it supersedes Part 3 for active work.*
+# Part 6: Human verification pass — run this tomorrow
+
+Every "Done" status in Part 5 is backed by automated tests plus, for a
+handful of items, one informal live check. That's not enough: two real
+audible bugs this session (local mic feeding back into local speakers, a
+suspended `AudioContext` silently producing no sound) passed every
+automated test and were only found by a human actually listening. Nothing
+in Part 5 should be trusted as "working" for a live demo until a human has
+actually run it end-to-end — this section is that pass, written to be
+followed directly, not re-derived.
+
+Assign one person to drive this (doesn't have to split three ways like
+Part 5's dev work) with the other two available to join as the second/
+third device for whichever scenario needs multiple people. Record results
+directly in this file (turn each checkbox's status into ✅/❌ + a one-line
+note) so tomorrow's findings aren't lost.
+
+## Setup (once, before running any scenario)
+
+1. Start the API server with real LiveKit credentials:
+   `LIVEKIT_URL=... LIVEKIT_API_KEY=... LIVEKIT_API_SECRET=... npm run api`
+2. Start the frontend: `npm run dev`
+3. Expose it over HTTPS (required for camera/mic on a non-`localhost`
+   device): `cloudflared tunnel --url http://localhost:5173` — note the
+   URL, it's random and different every time this command runs.
+4. Start the real backend: `python backend/supervisor.py` (auto-attaches to
+   every room; no per-room command needed).
+5. Sanity check before involving other people: `curl <tunnel-url>/health`
+   returns `{"ok":true,...}`, and creating a room via the UI shows
+   `Real processing: OFF` until a worker attaches, then `ON` shortly after
+   real audio starts flowing.
+6. Have physical devices ready — **at least two genuinely different
+   physical devices for every scenario below**, not two browser tabs on
+   one machine. Two tabs on one machine won't catch the sample-rate/
+   hardware-mismatch class of bug Part 5 flags as open.
+
+## Test scenarios
+
+Each one: exact steps, what a human should see/hear to call it a pass, and
+current status going into tomorrow.
+
+1. **Video call baseline (Task 1).** Create a room (any mode), join from
+   two devices. Pass: each device shows the other's live camera video
+   within a few seconds, both directions, audio+video roughly in sync.
+   **Status: confirmed working** — re-run as a smoke test before the rest.
+2. **Room code sharing.** Confirm the room code is prominently visible and
+   copyable on screen; join a second device by pasting it (use "Join
+   existing", not "Create room & join" — that makes a separate room).
+   **Status: confirmed working.**
+3. **Performance mode, 2 performers + 1 listener (Tasks 2, 4, 6-stand-in,
+   7, 9).** Device A joins `lead`, device B joins `performer`, device C
+   (or a third tab) joins `listener`. Both performers hum/sing the *same*
+   simple phrase. Pass: the listener hears a mixed, audibly-synced result
+   within roughly 1-2s of the performers singing, and the "Real
+   processing" badge shows `ON` with a `performance_mix` update. Listen
+   critically, not just for "did any sound come through" — does it
+   actually sound aligned, or just mixed-and-hoped? **Status: confirmed
+   once, informally ("it seems to work") — re-verify with real critical
+   listening, this is the highest-value re-check tomorrow.**
+4. **Performance mode, 3-4 performers.** Same as #3 with more performers.
+   **Status: never tested.**
+5. **Performance mode, performer dropout mid-session.** One performer
+   leaves while singing continues among the rest. Pass: the listener's
+   feed doesn't freeze or error; once Person C's real Task 6 lands, the
+   sync anchor should reassign to a remaining active performer rather than
+   staying pinned to whoever left. **Status: never tested — the
+   reassignment half is blocked on Person C's Task 6 work in Part 5, but
+   the "doesn't break" half can be checked against the current stand-in
+   today.**
+6. **Practice mode, 2 peers (Tasks 2, 4, 7, 9).** Two devices join as
+   `peer`. Have them hum/sing the same phrase, then different phrases.
+   Pass: both hear an "enhanced" mixed feed for the same-phrase case; for
+   the different-phrase case, confirm it doesn't produce garbage (Task 4's
+   `timestamp_offset` fallback should engage — check the processing badge's
+   meta for `used_sync`). **Status: never tested with real humans/devices
+   — only scripted synthetic audio has exercised this path. Practice
+   didn't get the attention Performance did this pass; treat this as the
+   top-priority new test tomorrow.**
+7. **Teach mode.** **Blocked — not built.** Skip until Person C's Teach
+   mode work in Part 5 lands; don't spend time on it tomorrow.
+8. **Task 8 note display.** **Blocked — no UI yet** (Person A's Part 5
+   item). Until then, the only available check is headless: run
+   `audio-intelligence/notes/`'s extraction on a recorded clip and eyeball
+   whether the output note names look reasonable. Not a substitute for
+   seeing notes on screen once the UI lands.
+9. **Task 3 replay — real sessions, not test scripts.** After running
+   scenario #3 or #6, check the storage root on disk for newly-written WAV
+   blobs and play a couple back directly. Pass: they contain real,
+   recognizable audio from the session just run. Performance mode won't
+   produce anything yet (Person B's Part 5 item covers wiring storage into
+   it) — Practice mode should already write something.
+10. **Cross-device audio quality.** Specifically using two *different*
+    physical devices/hardware (not two tabs), listen for pitch weirdness,
+    dropouts, or echo during scenarios #3 and #6 — this is where a sample-
+    rate mismatch (Person B's open Part 5 item) would actually show up.
+
+## Bug-reporting protocol
+
+For anything that fails or sounds wrong, capture: (a) exact steps that
+reproduce it, (b) expected vs. observed, (c) the "Real processing" badge's
+state at the time, (d) any browser console errors, (e) which server log
+(api / vite / supervisor) shows anything relevant. File it as a new bullet
+under the relevant person's Part 5 assignment if it maps to an existing
+gap, or as a new `> **Open question:**` callout if it's a design ambiguity
+rather than a straightforward bug.
+
+---
+
+*Roadmap updated after the first live integration pass: video calling, Task 1-9 (Task 6 as a stand-in), and Performance mode confirmed working end-to-end across two real devices with the real audio backend attached. Task 5 (compare/score) completed this pass. Teach mode remains unbuilt. See Part 5 for current status and the round-2 3-person split, and Part 6 for the human verification pass to run before trusting any of it for a demo.*
