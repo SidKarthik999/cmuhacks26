@@ -340,6 +340,10 @@ def run(
                 "delay_ms": round(delays[i], 1),
                 "confidence": round(measured[i][1], 3),
                 "shift_applied_ms": round(shifts[i], 1),
+                # Measured on the corrected audio, not derived from the shift.
+                # This is the number the "after" picture has to be drawn from;
+                # the planned figure is zero for everyone by construction.
+                "residual_ms": round(residual[i], 1),
             }
             for i in range(n)
         ],

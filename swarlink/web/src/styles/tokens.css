@@ -1,0 +1,88 @@
+/* Swarlink design tokens.
+ *
+ * The palette is one near-black, a narrow grey ramp, and a single cold
+ * accent. That restraint is the point: everything on screen is a measurement,
+ * and colour is reserved for saying whether a measurement is good. If the
+ * chrome also used colour there would be nothing left to say it with.
+ *
+ * Type is two families doing two jobs. Archivo variable carries a width axis,
+ * so display headings are genuinely condensed rather than squashed by a
+ * transform; JetBrains Mono handles every number and label, because data in a
+ * proportional face makes columns of figures impossible to compare.
+ */
+
+@font-face {
+  font-family: "Archivo";
+  src: url("/fonts/archivo-var-latin.woff2") format("woff2-variations");
+  font-weight: 400 800;
+  font-stretch: 62.5% 125%;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/jetbrains-mono-var-latin.woff2") format("woff2-variations");
+  font-weight: 400 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* Surfaces. Four steps only; more invites decoration. */
+  --ink-000: #07080a;
+  --ink-050: #0b0d10;
+  --ink-100: #101317;
+  --ink-200: #171b20;
+  --ink-300: #21262d;
+
+  /* Text ramp. */
+  --fg-000: #f2f4f6;
+  --fg-100: #c9ced5;
+  --fg-200: #8d959f;
+  --fg-300: #5c646d;
+  --fg-400: #3b4148;
+
+  /* The one accent, plus the two verdict colours. Verdicts are deliberately
+   * desaturated: a red that shouts turns every imperfect take into a
+   * failure, and almost every real take is imperfect. */
+  --cold-100: #8ce9ff;
+  --cold-200: #38c7ec;
+  --cold-300: #1b8fae;
+  --cold-400: #0e4a5c;
+  --warm: #d8a24a;
+  --alert: #d4685f;
+
+  --rule: color-mix(in oklab, var(--fg-400) 55%, transparent);
+  --rule-strong: color-mix(in oklab, var(--fg-300) 70%, transparent);
+  --glass: color-mix(in oklab, var(--ink-100) 88%, transparent);
+
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* A 4px base. Every gap in the app is a multiple, which is what makes the
+   * hairline grid line up instead of nearly lining up. */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --s8: 72px;
+  --s9: 112px;
+
+  --gutter: clamp(20px, 4vw, 64px);
+  --measure: 62ch;
+
+  --t-fast: 120ms;
+  --t-med: 260ms;
+  --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 1ms;
+    --t-med: 1ms;
+  }
+}

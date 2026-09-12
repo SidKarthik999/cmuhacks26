@@ -203,6 +203,19 @@ class Scene:
 # Written material
 # --------------------------------------------------------------------------
 
+# Human names for the scene picker. The generated "Lesson scale" reads like a
+# variable, and the picker is the first thing anyone sees.
+TITLES: Dict[str, str] = {
+    "lesson:scale": "Major scale, eight notes",
+    "lesson:phrase": "Phrase with repeated notes",
+    "lesson:descending": "Descending line",
+    "duet:unison": "Two singers, one line",
+    "duet:thirds": "Two singers in thirds",
+    "duet:octaves": "Soprano and tenor, an octave apart",
+    "concert:band": "Five-piece band, lead vocal",
+    "concert:chorale": "Five-part chorale",
+}
+
 # Deliberately plain: a scale exercises every scale degree once, which is the
 # worst case for a note segmenter (no repeated pitch to lean on) and the best
 # case for reading a report, because every error has an obvious address.
@@ -335,7 +348,7 @@ def lesson(
 
     return Scene(
         key=f"lesson:{material}",
-        title="Lesson " + material,
+        title=TITLES.get(f"lesson:{material}", f"Lesson {material}"),
         mode="lesson",
         summary=(
             f"{teacher_profile} teacher, {student_profile} student; student "
@@ -405,7 +418,7 @@ def duet(
 
     return Scene(
         key=f"duet:{material}",
-        title="Duet " + material,
+        title=TITLES.get(f"duet:{material}", f"Duet {material}"),
         mode="duet",
         summary=(
             f"{upper_profile} and {lower_profile} in {material}; second singer "
@@ -503,7 +516,7 @@ def concert(
 
     return Scene(
         key=f"concert:{material}",
-        title="Concert " + material,
+        title=TITLES.get(f"concert:{material}", f"Concert {material}"),
         mode="concert",
         summary=(
             f"{len(parts)} performers, lead plus {len(parts) - 1}; heard-the-lead "

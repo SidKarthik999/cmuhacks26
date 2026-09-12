@@ -135,7 +135,18 @@ def istft(
         a = i * hop
         out[a : a + n_fft] += frames[i]
         norm[a : a + n_fft] += window ** 2
-    out = out / np.maximum(norm, 1e-8)
+    # Floor the window sum against its own steady-state value, not against an
+    # absolute epsilon.
+    #
+    # Only a fraction of one window covers the first and last half-window, so
+    # `norm` there falls towards `w[1]**2` ~ 1e-11. Dividing by an epsilon of
+    # 1e-8 multiplies those samples by up to a thousand and turns the leading
+    # edge of every time-warped take into a full-scale click: on a lesson take
+    # whose loudest sample was 0.52, the warped student's first samples hit
+    # 0.49 where the source was at 0.02. Flooring instead lets the
+    # unreconstructable edge fade in, which is what it is.
+    peak = float(norm.max()) if norm.size else 0.0
+    out = out / np.maximum(norm, 1e-2 * peak if peak > 0.0 else 1e-8)
     if length is not None:
         out = out[:length] if out.size >= length else np.pad(out, (0, length - out.size))
     return out.astype(np.float32)

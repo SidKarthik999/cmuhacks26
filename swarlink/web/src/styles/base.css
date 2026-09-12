@@ -1,0 +1,276 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--ink-000);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--ink-000);
+  color: var(--fg-100);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The structural grid. Two fixed vertical hairlines behind everything, set at
+ * the same fractions the layouts use, so a column edge in one section reads as
+ * continuous with a column edge three sections down. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: linear-gradient(90deg, var(--rule) 0 1px, transparent 1px),
+    linear-gradient(90deg, var(--rule) 0 1px, transparent 1px);
+  background-position: var(--gutter) 0, calc(100% - var(--gutter)) 0;
+  background-repeat: no-repeat;
+  opacity: 0.6;
+}
+
+#app {
+  position: relative;
+  z-index: 1;
+}
+
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 99;
+  padding: var(--s3) var(--s4);
+  background: var(--cold-200);
+  color: var(--ink-000);
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.skip:focus {
+  left: var(--s4);
+  top: var(--s4);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-family: var(--display);
+  color: var(--fg-000);
+  font-weight: 700;
+  font-stretch: 72%;
+  letter-spacing: -0.02em;
+  line-height: 0.92;
+  text-wrap: balance;
+}
+
+/* Display sizes. The jump from h1 to a label is deliberately enormous: with
+ * only one accent colour, scale is the main tool for hierarchy. */
+.d-hero {
+  font-size: clamp(56px, 12.5vw, 184px);
+  font-stretch: 62.5%;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+}
+.d-1 {
+  font-size: clamp(34px, 5.4vw, 76px);
+}
+.d-2 {
+  font-size: clamp(24px, 3vw, 40px);
+}
+.d-3 {
+  font-size: clamp(18px, 1.8vw, 24px);
+  font-stretch: 84%;
+}
+
+p {
+  margin: 0;
+}
+
+.prose {
+  max-width: var(--measure);
+  font-family: var(--display);
+  font-stretch: 100%;
+  font-size: clamp(15px, 1.15vw, 17px);
+  line-height: 1.62;
+  color: var(--fg-100);
+  letter-spacing: -0.004em;
+}
+.prose + .prose {
+  margin-top: var(--s4);
+}
+.prose strong {
+  color: var(--fg-000);
+  font-weight: 600;
+}
+
+/* The workhorse label. Every number on screen is introduced by one of these,
+ * and they are all the same size, so the numbers are what differ. */
+.label {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fg-300);
+}
+.label--accent {
+  color: var(--cold-300);
+}
+
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-000);
+}
+
+.rule {
+  height: 1px;
+  background: var(--rule);
+  border: 0;
+  margin: 0;
+}
+
+a {
+  color: var(--cold-100);
+  text-decoration-color: var(--cold-400);
+  text-underline-offset: 3px;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--cold-200);
+  outline-offset: 2px;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+}
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- controls */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 10px var(--s4);
+  border: 1px solid var(--rule-strong);
+  background: transparent;
+  color: var(--fg-000);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: border-color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.btn:hover:not(:disabled) {
+  border-color: var(--cold-300);
+  background: color-mix(in oklab, var(--cold-400) 30%, transparent);
+}
+.btn:disabled {
+  color: var(--fg-300);
+  cursor: default;
+}
+.btn--primary {
+  border-color: var(--cold-200);
+  color: var(--cold-100);
+}
+.btn--primary:hover:not(:disabled) {
+  background: var(--cold-400);
+}
+.btn--on {
+  border-color: var(--cold-200);
+  background: var(--cold-400);
+  color: var(--cold-100);
+}
+.btn--danger:hover:not(:disabled) {
+  border-color: var(--alert);
+  background: color-mix(in oklab, var(--alert) 18%, transparent);
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 22px;
+  background: transparent;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 1px;
+  background: var(--rule-strong);
+}
+input[type="range"]::-moz-range-track {
+  height: 1px;
+  background: var(--rule-strong);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 3px;
+  height: 20px;
+  margin-top: -10px;
+  border-radius: 0;
+  background: var(--cold-100);
+  border: 0;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 3px;
+  height: 20px;
+  border-radius: 0;
+  background: var(--cold-100);
+  border: 0;
+}
+
+input[type="text"] {
+  width: 100%;
+  padding: 10px var(--s3);
+  background: var(--ink-050);
+  border: 1px solid var(--rule);
+  color: var(--fg-000);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+input[type="text"]::placeholder {
+  color: var(--fg-400);
+}
+
+select {
+  padding: 9px var(--s3);
+  background: var(--ink-050);
+  border: 1px solid var(--rule-strong);
+  color: var(--fg-000);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}

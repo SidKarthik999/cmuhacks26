@@ -136,23 +136,42 @@ def _contour_series(contour: pitch.Contour, points: int) -> List[Dict[str, float
     Unvoiced frames become `None` rather than zero or an interpolated line.
     A breath is not a note at 0 Hz, and a chart that joins across one is
     telling the student they sang something they did not.
+
+    The pitch drawn is the median-filtered track -- the same one
+    `segment_notes` reads -- not the raw per-frame output. YIN takes the
+    subharmonic at a note's attack transient often enough that a raw contour
+    has an octave-deep notch at most note boundaries, and a chart drawn
+    through them shows a singer leaping down an octave and back inside 20 ms,
+    which is not something a voice can do. The filter is the module's own
+    spike remover; using it here means the picture and the note table agree
+    about what was sung.
+
+    Each output point is then the median of the frames it stands for, rather
+    than one sampled frame, so thinning cannot resurrect a spike the filter
+    removed. A bin is only reported as voiced if most of its frames were.
     """
     n = contour.time_ms.size
     if n == 0:
         return []
-    idx = np.unique(np.linspace(0, n - 1, min(points, n)).astype(int))
-    voiced = contour.voiced
+    smoothed = pitch.median_filter(
+        contour.hz, width=max(int(round(60.0 / max(contour.hop_ms, 1e-6))) | 1, 3)
+    )
+    count = min(points, n)
+    edges = np.linspace(0, n, count + 1).astype(int)
     out: List[Dict[str, Any]] = []
-    for i in idx:
-        live = bool(voiced[i])
+    for i in range(count):
+        lo, hi = edges[i], max(edges[i + 1], edges[i] + 1)
+        voiced = contour.voiced[lo:hi] & np.isfinite(smoothed[lo:hi])
+        live = bool(voiced.mean() >= 0.5) if voiced.size else False
+        hz = float(np.median(smoothed[lo:hi][voiced])) if live and voiced.any() else 0.0
         out.append(
             {
-                "t": round(float(contour.time_ms[i]), 1),
-                "hz": round(float(contour.hz[i]), 2) if live else None,
-                "midi": round(float(69.0 + 12.0 * np.log2(contour.hz[i] / 440.0)), 3)
-                if live
+                "t": round(float(np.median(contour.time_ms[lo:hi])), 1),
+                "hz": round(hz, 2) if live else None,
+                "midi": round(float(69.0 + 12.0 * np.log2(hz / 440.0)), 3)
+                if live and hz > 0.0
                 else None,
-                "db": round(float(contour.rms_db[i]), 1),
+                "db": round(float(np.median(contour.rms_db[lo:hi])), 1),
             }
         )
     return out

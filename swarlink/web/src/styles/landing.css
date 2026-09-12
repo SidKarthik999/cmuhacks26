@@ -1,0 +1,294 @@
+/* The landing page.
+ *
+ * Laid out on the same gutter the fixed hairlines in `base.css` are drawn at,
+ * so the grid behind the page and the content on it agree. The hero is the
+ * only place in the product where type is allowed to be enormous; everywhere
+ * else the numbers are the loudest thing on screen, and the hero is the one
+ * screen with no numbers to protect.
+ */
+
+.landing {
+  padding-bottom: var(--s9);
+}
+
+/* ------------------------------------------------------------- masthead */
+
+.mast {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s5);
+  padding: var(--s3) var(--gutter);
+  border-bottom: 1px solid var(--rule);
+  background: color-mix(in oklab, var(--ink-000) 86%, transparent);
+  backdrop-filter: blur(10px);
+}
+.mast__mark {
+  font-family: var(--display);
+  font-weight: 800;
+  font-stretch: 62.5%;
+  font-size: 19px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--fg-000);
+  text-decoration: none;
+}
+.mast__nav {
+  display: flex;
+  gap: var(--s5);
+}
+.mast__link {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fg-300);
+  text-decoration: none;
+}
+.mast__link:hover {
+  color: var(--cold-100);
+}
+.mast__status {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  background: var(--cold-200);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--cold-200) 22%, transparent);
+}
+.dot--warm {
+  background: var(--warm);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--warm) 22%, transparent);
+}
+
+/* ----------------------------------------------------------------- hero */
+
+.hero {
+  position: relative;
+  padding: clamp(48px, 9vh, 104px) var(--gutter) var(--s8);
+  border-bottom: 1px solid var(--rule);
+  overflow: hidden;
+}
+/* Kept to the right of the text and faded in from the left. A full-bleed
+ * version looked better in isolation and made the lede unreadable, which is
+ * the wrong trade: the contours are atmosphere and the sentence is the point. */
+.hero__canvas {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 62%;
+  height: 100%;
+  opacity: 0.85;
+  mask-image: linear-gradient(90deg, transparent, #000 42%, #000 88%, transparent),
+    linear-gradient(180deg, transparent, #000 22%, #000 78%, transparent);
+  mask-composite: intersect;
+  -webkit-mask-composite: source-in;
+}
+.hero__body {
+  position: relative;
+  max-width: 1180px;
+}
+.hero__title {
+  margin: var(--s3) 0 var(--s5);
+  /* The wordmark is the one place a gradient earns its place: it reads as
+   * light falling across a solid object rather than as a coloured fill. */
+  background: linear-gradient(98deg, var(--fg-000) 30%, var(--cold-100) 78%, var(--cold-200) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.hero__lede {
+  max-width: 54ch;
+}
+.hero__cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3);
+  margin-top: var(--s6);
+}
+.hero__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0;
+  margin: var(--s8) 0 0;
+  border-top: 1px solid var(--rule);
+}
+.fact {
+  padding: var(--s4) var(--s4) var(--s3);
+  border-left: 1px solid var(--rule);
+}
+.fact:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+.fact__v {
+  font-family: var(--display);
+  font-weight: 700;
+  font-stretch: 62.5%;
+  font-size: clamp(28px, 3vw, 42px);
+  line-height: 0.95;
+  color: var(--fg-000);
+  font-variant-numeric: tabular-nums;
+}
+.fact__k {
+  margin: var(--s2) 0 0;
+  max-width: 22ch;
+}
+
+/* ----------------------------------------------------------------- band */
+
+.band {
+  padding: var(--s8) var(--gutter);
+  border-bottom: 1px solid var(--rule);
+}
+.band__head {
+  display: grid;
+  gap: var(--s3);
+  max-width: 92ch;
+}
+.band__cols {
+  display: grid;
+  gap: var(--s6);
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  margin-top: var(--s7);
+  padding-top: var(--s5);
+  border-top: 1px solid var(--rule);
+}
+.band__col {
+  display: grid;
+  gap: var(--s3);
+  align-content: start;
+}
+.band--numbers .band__head {
+  max-width: 74ch;
+}
+
+/* ------------------------------------------------------------- features */
+
+.features {
+  border-bottom: 1px solid var(--rule);
+}
+.feature {
+  display: grid;
+  grid-template-columns: clamp(64px, 9vw, 132px) minmax(0, 1fr);
+  gap: var(--s5);
+  padding: var(--s8) var(--gutter);
+}
+.feature + .feature {
+  border-top: 1px solid var(--rule);
+}
+.feature__rail {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s5);
+}
+.feature__n {
+  color: var(--fg-400);
+  font-variant-numeric: tabular-nums;
+}
+.feature__glyph {
+  width: 34px;
+  height: 34px;
+  color: var(--cold-200);
+}
+.feature__glyph svg {
+  width: 100%;
+  height: 100%;
+}
+.feature__body {
+  display: grid;
+  gap: var(--s3);
+  align-content: start;
+  max-width: 78ch;
+}
+.feature__body h3 {
+  margin-bottom: var(--s2);
+}
+.feature__figs {
+  display: grid;
+  gap: var(--s3);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  margin: var(--s4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.feature__figs li {
+  display: grid;
+  gap: var(--s1);
+  padding-left: var(--s3);
+  border-left: 1px solid var(--cold-400);
+}
+.feature__fig {
+  font-family: var(--display);
+  font-weight: 700;
+  font-stretch: 72%;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--cold-100);
+}
+.feature__figk {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--fg-300);
+}
+.feature__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s4);
+  margin-top: var(--s4);
+}
+
+/* ----------------------------------------------------------------- foot */
+
+.foot {
+  display: grid;
+  gap: var(--s6);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  padding: var(--s8) var(--gutter) var(--s7);
+}
+.foot__col {
+  display: grid;
+  gap: var(--s3);
+  align-content: start;
+}
+.foot__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--s2);
+  font-size: 11.5px;
+  color: var(--fg-200);
+}
+.foot__list a {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 10px;
+  text-decoration: none;
+}
+.foot__list a:hover {
+  color: var(--fg-000);
+}
+
+@media (max-width: 720px) {
+  .mast__nav {
+    display: none;
+  }
+  .feature {
+    grid-template-columns: 1fr;
+  }
+  .feature__rail {
+    flex-direction: row;
+    align-items: center;
+  }
+}
